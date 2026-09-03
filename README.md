@@ -18,6 +18,8 @@ que solo ven los administradores.
   y siguen ahí aunque el ticket se cierre o se borre.
 - Reclamar tickets, añadir o quitar gente, transcripción en `.txt` y canal de
   logs.
+- **Siempre activo**: página de estado, auto-ping, reinicio automático si pierde
+  la conexión y respaldo de la memoria, para aguantar en hostings gratuitos.
 
 ## El menú de paneles
 
@@ -145,35 +147,10 @@ npm run configurar   # te pregunta el token y crea el .env
 npm start
 ```
 
-#### En un VPS con Docker (para tenerlo 24/7)
+#### En un servidor, para tenerlo 24/7
 
-```bash
-npm run configurar   # crea el .env
-mkdir -p data
-docker compose up -d --build
-```
-
-Ver los mensajes del bot: `docker compose logs -f`. Pararlo: `docker compose down`.
-La carpeta `data/` guarda los paneles y las cuentas, no la borres.
-
-#### En un VPS sin Docker
-
-Con [pm2](https://pm2.keymetrics.io) se queda corriendo aunque cierres la sesión:
-
-```bash
-npm install
-npm run configurar
-npm install -g pm2
-pm2 start src/index.js --name bot-tickets
-pm2 save && pm2 startup    # para que vuelva solo si se reinicia el servidor
-```
-
-#### En un hosting tipo Railway o Render
-
-Sube el repo y define estas variables de entorno en el panel del hosting
-(`DISCORD_TOKEN`, `CLIENT_ID`, `GUILD_ID`, `DEPLOY_ON_START=true`). El comando de
-arranque es `npm start`. Asegúrate de que la carpeta `data/` sea persistente, o
-perderás los paneles y las cuentas en cada despliegue.
+Mira el apartado **[Que esté siempre activo](#que-esté-siempre-activo)**: ahí están
+Render gratis, Docker y pm2, con lo que hace falta para que no se caiga ni se duerma.
 
 ### Paso 3: dejarlo listo en Discord
 
@@ -209,6 +186,105 @@ crear cada canal.
 | `CLIENT_ID o GUILD_ID incorrectos` | Cópialos otra vez: el Application ID está en General Information; el del servidor, con clic derecho > Copiar ID. |
 | Los comandos no salen en Discord | Si dejaste el GUILD_ID vacío, Discord tarda hasta 1 hora. Rellénalo y reinicia. |
 | `No he podido crear el canal` | Al bot le faltan **Gestionar canales** y **Gestionar roles**, o la categoría configurada ya no existe. |
+
+## Que esté siempre activo
+
+Los hostings gratuitos **duermen** los servicios que no reciben visitas (Render,
+por ejemplo, a los 15 minutos) y **reinician** los contenedores cuando les
+apetece. El bot trae cuatro cosas para aguantar eso:
+
+| Qué | Para qué |
+|---|---|
+| Página de estado (`/` y `/ping`) | El hosting ve que hay algo escuchando y no mata el servicio. Responde `200` si el bot está conectado a Discord y `503` si no, así el monitor se entera de las caídas. |
+| Auto-ping | El bot se visita a sí mismo cada 10 minutos para no dormirse. Detecta solo su URL en Render, Railway, Koyeb, Fly y Replit. |
+| Vigilante | Si Discord no vuelve en 5 minutos, mata el proceso a propósito para que el hosting lo arranque limpio. Los cortes normales los arregla discord.js solo. |
+| Respaldo | Sube la memoria (paneles, cuentas, historial) a un canal privado de Discord y la recupera al arrancar si el disco se ha borrado. |
+
+Un servicio ya dormido no puede despertarse solo, así que hace falta **alguien
+que lo llame desde fuera**. Tienes tres opciones gratis (con una basta):
+
+- **La que ya viene en el repo**: `.github/workflows/keepalive.yml` hace ping cada
+  10 minutos. Solo tienes que crear la variable: en GitHub, **Settings > Secrets
+  and variables > Actions > Variables > New repository variable**, nombre
+  `KEEPALIVE_URL` y valor la URL de tu bot. Ojo: GitHub apaga los workflows
+  programados si el repo pasa 60 días sin actividad.
+- **[UptimeRobot](https://uptimerobot.com)**: monitor HTTP(s) a `https://tu-bot/ping`
+  cada 5 minutos. Es el más fiable de los tres y además te avisa si se cae.
+- **[cron-job.org](https://cron-job.org)**: lo mismo, sin cuenta de pago.
+
+### Desplegar gratis en Render
+
+1. Sube el repo a GitHub (ya lo tienes).
+2. En [Render](https://render.com): **New > Blueprint**, elige el repo. El archivo
+   `render.yaml` ya lo deja configurado.
+3. Rellena las variables que te pida: `DISCORD_TOKEN`, `CLIENT_ID`, `GUILD_ID` y
+   `RESPALDO_CANAL_ID`.
+4. Cuando termine el despliegue, copia la URL (algo como
+   `https://bot-tickets.onrender.com`) y mete esa URL en UptimeRobot o en la
+   variable `KEEPALIVE_URL` de GitHub.
+
+**Lo que tienes que saber del plan gratuito de Render:** da 750 horas al mes, que
+llegan justas para un servicio encendido todo el mes, y **no tiene disco
+persistente**. Por eso el respaldo no es opcional aquí: sin él, cada reinicio te
+deja sin paneles ni cuentas. Aun con todo, un servicio gratis dormido tarda unos
+30 segundos en despertar, así que puede haber ratos en que el bot no responda al
+instante.
+
+### El canal de respaldo
+
+1. Crea un canal privado que solo veas tú (por ejemplo `#respaldo-bot`).
+2. Clic derecho > **Copiar ID**.
+3. Ponlo en la variable `RESPALDO_CANAL_ID` (en el `.env` o en el panel del hosting).
+
+El bot sube ahí un `db.json` cada 6 horas (`RESPALDO_HORAS` lo cambia), y también
+justo antes de apagarse cuando el hosting le avisa. Al arrancar, si no encuentra
+memoria en el disco, se baja el último respaldo. Ese archivo lleva **toda la base
+de datos**: no lo dejes en un canal que vea gente.
+
+### Con Docker (VPS)
+
+```bash
+npm run configurar
+mkdir -p data
+docker compose up -d --build
+```
+
+`restart: unless-stopped` ya lo levanta solo si se cae o si reinicias la máquina.
+Los logs: `docker compose logs -f`.
+
+### Con pm2 (VPS sin Docker)
+
+```bash
+npm install && npm run configurar
+npm install -g pm2
+pm2 start src/index.js --name bot-tickets
+pm2 save && pm2 startup
+```
+
+### Sin nada de lo anterior
+
+```bash
+npm run siempre
+```
+
+Arranca el bot bajo un supervisor propio: si el proceso se muere, lo vuelve a
+levantar esperando cada vez un poco más (2s, 4s, 8s... hasta 1 minuto) para no
+entrar en bucle si el fallo es de configuración. Con Docker o pm2 no hace falta.
+
+### Ver cómo está
+
+Abre la URL del bot en el navegador:
+
+```json
+{
+  "conectado": true,
+  "estado": "listo",
+  "bot": "MiBot#1234",
+  "servidores": 1,
+  "latencia": "42 ms",
+  "enPie": "3d 4h 12m 8s"
+}
+```
 
 ## Comandos
 
@@ -274,7 +350,12 @@ src/lib/cuentas.js     registro privado de cuentas por nivel
 src/lib/permisos.js    quien puede ver el registro (owner y admins)
 src/lib/tickets.js     crear, cerrar, reabrir y transcripciones
 src/lib/store.js       memoria: data/db.json
+src/servidor.js        pagina de estado (/ y /ping)
+src/lib/keepalive.js   auto-ping para no dormirse
+src/lib/vigilante.js   reinicia si Discord no vuelve
+src/lib/respaldo.js    copia de la memoria en un canal privado
 scripts/configurar.js  asistente que crea el .env
+scripts/supervisor.js  relanza el bot si se cae
 scripts/prueba-humo.js prueba sin conexion
 ```
 

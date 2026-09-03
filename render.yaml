@@ -1,0 +1,32 @@
+# Despliegue en Render (https://render.com). Con esto, "New > Blueprint" y
+# apuntando a este repo, Render lo configura solo.
+#
+# El plan gratuito duerme el servicio a los 15 minutos sin visitas: el
+# auto-ping del bot y el monitor externo (.github/workflows/keepalive.yml)
+# estan para eso. El disco persistente NO entra en el plan gratuito, asi que
+# en gratis los paneles y las cuentas se pierden en cada despliegue: si te
+# importan, usa el plan de pago o guarda copia de data/db.json.
+services:
+  - type: web
+    name: bot-tickets
+    runtime: node
+    plan: free
+    buildCommand: npm ci --omit=dev
+    startCommand: npm start
+    healthCheckPath: /ping
+    envVars:
+      - key: DISCORD_TOKEN
+        sync: false
+      - key: CLIENT_ID
+        sync: false
+      - key: GUILD_ID
+        sync: false
+      - key: DEPLOY_ON_START
+        value: 'true'
+      - key: KEEPALIVE_MINUTOS
+        value: '10'
+      # Sin disco persistente, esto es lo que salva los paneles y las cuentas.
+      - key: RESPALDO_CANAL_ID
+        sync: false
+      - key: RESPALDO_HORAS
+        value: '6'

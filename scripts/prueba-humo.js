@@ -10,6 +10,13 @@
  *  - solo el dueño del servidor y los administradores pueden ver ese registro.
  */
 
+// Base de datos aparte: la prueba no debe tocar la memoria real del bot ni
+// arrastrar lo que dejo la ejecucion anterior.
+process.env.BOT_DB = require('node:path').join(
+  require('node:os').tmpdir(),
+  `bot-tickets-prueba-${process.pid}.json`,
+);
+
 const store = require('../src/lib/store');
 const cuentas = require('../src/lib/cuentas');
 const panel = require('../src/lib/panel');
@@ -18,6 +25,11 @@ const handlerBotones = require('../src/interactions/botones');
 const handlerSelects = require('../src/interactions/selects');
 const handlerModales = require('../src/interactions/modales');
 const comandoCuentas = require('../src/commands/cuentas');
+const { crearServidor } = require('../src/servidor');
+const { detectarUrl, iniciarKeepAlive } = require('../src/lib/keepalive');
+const { iniciarVigilante } = require('../src/lib/vigilante');
+const respaldo = require('../src/lib/respaldo');
+const { Status } = require('discord.js');
 
 const GUILD_ID = 'prueba-guild';
 const CANAL_ID = 'prueba-canal';
@@ -245,8 +257,130 @@ async function main() {
     comprobar(`${rol} si puede`, i.respuestas[0] === `modal:cuentas:editar:modal:${CLIENTE_ID}`);
   }
 
+  await probarSiempreActivo();
+  await probarRespaldo();
+
+  try {
+    require('node:fs').unlinkSync(process.env.BOT_DB);
+  } catch {
+    // Si no llego a crearse, no hay nada que limpiar.
+  }
+
   console.log(fallos === 0 ? '\n✅ Todo correcto.\n' : `\n❌ ${fallos} comprobacion(es) fallidas.\n`);
   process.exitCode = fallos === 0 ? 0 : 1;
+}
+
+/** Lo que mantiene el bot vivo en un hosting gratuito. */
+async function probarSiempreActivo() {
+  console.log('\nSiempre activo');
+
+  // Pagina de estado: 503 mientras no hay Discord, 200 cuando lo hay.
+  let conectado = false;
+  const web = crearServidor(() => ({ conectado, estado: conectado ? 'listo' : 'conectando' }));
+  await web.escuchar(0);
+  const base = `http://127.0.0.1:${web.servidor.address().port}`;
+
+  let res = await fetch(`${base}/ping`);
+  comprobar('sin conexion la pagina de estado responde 503', res.status === 503);
+
+  conectado = true;
+  res = await fetch(`${base}/ping`);
+  comprobar('conectado responde 200 (el monitor lo ve vivo)', res.status === 200 && (await res.text()) === 'pong');
+
+  // Auto-ping contra ese mismo servidor.
+  let pings = 0;
+  web.servidor.on('request', (req) => {
+    if (req.url === '/ping') pings += 1;
+  });
+  const keepalive = iniciarKeepAlive({ url: base, minutos: 0.1 });
+  await new Promise((r) => setTimeout(r, 7000));
+  keepalive.parar();
+  comprobar(`el auto-ping se llama solo (${pings} en 7s)`, pings >= 1);
+
+  await web.cerrar();
+
+  // Cada hosting publica su URL en una variable distinta.
+  comprobar('detecta la URL de Render', detectarUrl({ RENDER_EXTERNAL_URL: 'https://x.onrender.com' }) === 'https://x.onrender.com');
+  comprobar('detecta la URL de Railway', detectarUrl({ RAILWAY_PUBLIC_DOMAIN: 'x.up.railway.app' }) === 'https://x.up.railway.app');
+  comprobar('sin hosting no hay auto-ping', detectarUrl({}) === null);
+
+  // El vigilante reinicia el proceso si Discord no vuelve.
+  let estadoWs = Status.Ready;
+  const clienteFalso = { ws: { get status() { return estadoWs; } }, on() {} };
+  const salidaReal = process.exit;
+  let salioCon = null;
+  process.exit = (codigo) => {
+    salioCon = codigo;
+  };
+  const vigilante = iniciarVigilante(clienteFalso, { minutosSinConexion: 0.01, intervaloSegundos: 0.2 });
+  estadoWs = Status.Disconnected;
+  await new Promise((r) => setTimeout(r, 1000));
+  vigilante.parar();
+  process.exit = salidaReal;
+  comprobar('el vigilante fuerza el reinicio si Discord no vuelve', salioCon === 1);
+}
+
+/** El respaldo que salva la memoria en hostings con disco efimero. */
+async function probarRespaldo() {
+  console.log('\nRespaldo de la memoria');
+
+  const fs = require('node:fs');
+  const http = require('node:http');
+
+  process.env.RESPALDO_CANAL_ID = 'canal-respaldo';
+
+  store.setGuild('respaldo-guild', { staffRolId: 'rol-prueba' });
+  cuentas.setCuentas('respaldo-guild', 'u-prueba', { [config.niveles[0].id]: 7 });
+  await new Promise((r) => setTimeout(r, 50));
+
+  const enviados = [];
+  let mensajesFalsos = { filter: () => ({ sort: () => ({ first: () => null }) }) };
+  const canal = {
+    isTextBased: () => true,
+    send: async (m) => {
+      enviados.push(m);
+      return { id: 'm1' };
+    },
+    messages: { fetch: async () => mensajesFalsos },
+  };
+  const client = { user: { id: 'bot' }, channels: { cache: new Map(), fetch: async () => canal } };
+
+  comprobar('sube la memoria al canal de respaldo', (await respaldo.subir(client, 'prueba')) === true);
+
+  const copia = enviados[0].files[0].attachment.toString();
+  comprobar('la copia lleva las cuentas dentro', copia.includes('u-prueba') && copia.includes('rol-prueba'));
+
+  // Servimos la copia como haria el CDN de Discord.
+  const servidor = http.createServer((req, res) => res.end(copia));
+  await new Promise((r) => servidor.listen(0, '127.0.0.1', r));
+  const url = `http://127.0.0.1:${servidor.address().port}/db.json`;
+
+  mensajesFalsos = {
+    filter: () => ({
+      sort: () => ({
+        first: () => ({
+          createdTimestamp: Date.now(),
+          attachments: { find: () => ({ name: 'db.json', url }) },
+        }),
+      }),
+    }),
+  };
+
+  // El hosting reinicia y se lleva el disco por delante.
+  fs.unlinkSync(store.RUTA);
+  store.recargar();
+  comprobar('tras borrarse el disco la memoria esta vacia', !store.getGuild('respaldo-guild').staffRolId);
+
+  comprobar('la restaura del canal al arrancar', (await respaldo.restaurarSiHaceFalta(client)) === true);
+  comprobar(
+    'vuelven las cuentas y la configuracion',
+    cuentas.getCuentas('respaldo-guild', 'u-prueba')[config.niveles[0].id] === 7 &&
+      store.getGuild('respaldo-guild').staffRolId === 'rol-prueba',
+  );
+  comprobar('con memoria en disco no pisa nada', (await respaldo.restaurarSiHaceFalta(client)) === false);
+
+  servidor.close();
+  delete process.env.RESPALDO_CANAL_ID;
 }
 
 main().catch((err) => {

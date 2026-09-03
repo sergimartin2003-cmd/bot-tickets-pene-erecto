@@ -5,8 +5,12 @@ const path = require('node:path');
 
 const config = require('../config');
 
-const DIR = path.join(config.ROOT, 'data');
-const RUTA = path.join(DIR, 'db.json');
+// BOT_DB permite mover la base de datos (un volumen del hosting, o un archivo
+// aparte para las pruebas). Por defecto, data/db.json.
+const RUTA = process.env.BOT_DB
+  ? path.resolve(process.env.BOT_DB)
+  : path.join(config.ROOT, 'data', 'db.json');
+const DIR = path.dirname(RUTA);
 
 const VACIO = { guilds: {}, usuarios: {}, tickets: {} };
 
@@ -171,6 +175,8 @@ function ticketsDe(guildId, usuarioId) {
 }
 
 module.exports = {
+  RUTA,
+  recargar: leer,
   getGuild,
   setGuild,
   siguienteNumero,

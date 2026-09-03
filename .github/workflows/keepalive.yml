@@ -1,0 +1,42 @@
+# Monitor externo gratuito: despierta el bot si el hosting lo ha dormido.
+#
+# Para usarlo: en el repo, Settings > Secrets and variables > Actions >
+# Variables > New repository variable, con nombre KEEPALIVE_URL y el valor de
+# la URL publica de tu bot (por ejemplo https://mi-bot.onrender.com).
+#
+# Ojo: GitHub desactiva los workflows programados en repos sin actividad
+# durante 60 dias, y los cron pueden retrasarse unos minutos. Para algo mas
+# fiable, usa ademas UptimeRobot o cron-job.org (los dos tienen plan gratis).
+name: keepalive
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Despertar el bot
+        env:
+          URL: ${{ vars.KEEPALIVE_URL }}
+        run: |
+          if [ -z "$URL" ]; then
+            echo "::warning::No hay variable KEEPALIVE_URL configurada, no hay nada que pinguear."
+            exit 0
+          fi
+
+          # Varios intentos: un servicio dormido tarda en levantarse.
+          for intento in 1 2 3 4 5; do
+            codigo=$(curl -s -o /dev/null -w '%{http_code}' --max-time 60 "${URL%/}/ping" || echo 000)
+            echo "Intento $intento -> HTTP $codigo"
+            if [ "$codigo" = "200" ]; then
+              echo "El bot esta despierto y conectado a Discord."
+              exit 0
+            fi
+            sleep 20
+          done
+
+          echo "::error::El bot no responde con 200 despues de 5 intentos."
+          exit 1
