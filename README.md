@@ -105,54 +105,93 @@ Si quieres tenerlas todas a la vista, crea un canal que solo vean los admins y
 haz `/config canal-cuentas #ese-canal`: el bot mantiene ahí una ficha por
 persona, actualizada sola.
 
-## Instalación
+## Lanzarlo
 
 Necesitas [Node.js](https://nodejs.org) 18 o superior.
 
-### 1. Crear la aplicación en Discord
+### Paso 1: crear el bot en Discord
 
 1. Entra en el [Developer Portal](https://discord.com/developers/applications) y pulsa **New Application**.
-2. En **Bot**, pulsa **Reset Token** y copia el token (no lo compartas con nadie).
-3. En **General Information**, copia el **Application ID**.
-4. En **OAuth2 > URL Generator** marca los scopes `bot` y `applications.commands`,
-   y los permisos **Manage Channels**, **Manage Roles**, **Manage Messages**,
-   **Send Messages**, **Embed Links**, **Attach Files** y **Read Message History**.
-   Abre la URL que sale abajo e invita al bot a tu servidor.
+2. En **Bot**, pulsa **Reset Token** y copia el token. **No se lo enseñes a nadie**: con él, cualquiera controla tu bot.
+3. En **OAuth2 > URL Generator** marca los scopes `bot` y `applications.commands`, y los permisos
+   **Manage Channels**, **Manage Roles**, **Manage Messages**, **Send Messages**, **Embed Links**,
+   **Attach Files** y **Read Message History**.
+4. Abre la URL que sale abajo del todo e invita al bot a tu servidor.
 
-### 2. Configurar el proyecto
+Te hará falta también el ID de tu servidor: en Discord, **Ajustes > Avanzado > Modo desarrollador**,
+y luego clic derecho sobre el servidor > **Copiar ID**.
+
+### Paso 2: arrancarlo
+
+Elige según dónde lo quieras tener.
+
+#### En tu ordenador (lo más rápido para probar)
+
+**Windows**: doble clic en **`start.bat`**. Instala lo que haga falta, te pregunta el token y arranca.
+
+**Linux o macOS**:
+
+```bash
+./start.sh
+```
+
+El bot funciona mientras esa ventana esté abierta. Si la cierras, se apaga.
+
+Si prefieres hacerlo a mano:
 
 ```bash
 npm install
-cp .env.example .env
-```
-
-Abre `.env` y rellena:
-
-```
-DISCORD_TOKEN=el token del paso 2
-CLIENT_ID=el application id del paso 3
-GUILD_ID=el id de tu servidor
-```
-
-Para sacar el ID de tu servidor: en Discord, **Ajustes > Avanzado > Modo
-desarrollador**, luego clic derecho sobre el servidor > **Copiar ID**.
-
-### 3. Arrancar
-
-```bash
+npm run configurar   # te pregunta el token y crea el .env
 npm start
 ```
 
-Los comandos se registran solos al arrancar. También puedes hacerlo a mano con
-`npm run deploy`.
+#### En un VPS con Docker (para tenerlo 24/7)
 
-### 4. Dejarlo listo en Discord
+```bash
+npm run configurar   # crea el .env
+mkdir -p data
+docker compose up -d --build
+```
+
+Ver los mensajes del bot: `docker compose logs -f`. Pararlo: `docker compose down`.
+La carpeta `data/` guarda los paneles y las cuentas, no la borres.
+
+#### En un VPS sin Docker
+
+Con [pm2](https://pm2.keymetrics.io) se queda corriendo aunque cierres la sesión:
+
+```bash
+npm install
+npm run configurar
+npm install -g pm2
+pm2 start src/index.js --name bot-tickets
+pm2 save && pm2 startup    # para que vuelva solo si se reinicia el servidor
+```
+
+#### En un hosting tipo Railway o Render
+
+Sube el repo y define estas variables de entorno en el panel del hosting
+(`DISCORD_TOKEN`, `CLIENT_ID`, `GUILD_ID`, `DEPLOY_ON_START=true`). El comando de
+arranque es `npm start`. Asegúrate de que la carpeta `data/` sea persistente, o
+perderás los paneles y las cuentas en cada despliegue.
+
+### Paso 3: dejarlo listo en Discord
+
+Cuando arranque verás algo así:
+
+```
+✅ 4 comandos registrados en el servidor 123456789...
+✅ Conectado como MiBot#1234
+   Servidores: 1 · Comandos: 4
+```
+
+Ahora, dentro de Discord:
 
 ```
 /config categoria           categoria donde se crean los tickets
-/config categoria-cerrados  categoria a la que se mueven los cerrados
-/config logs                canal donde se registran aperturas y cierres
 /config staff               rol que puede ver y gestionar los tickets
+/config logs                canal donde se registran aperturas y cierres
+/config categoria-cerrados  categoria a la que se mueven los cerrados (opcional)
 /config canal-cuentas       canal PRIVADO con las fichas de cuentas (opcional)
 /config ver                 comprueba como esta todo
 /panel                      menu para crear los botones y publicar el panel
@@ -160,6 +199,16 @@ Los comandos se registran solos al arrancar. También puedes hacerlo a mano con
 
 El rol de staff ponlo **antes** de que se abran tickets: los permisos se dan al
 crear cada canal.
+
+### Si algo falla al arrancar
+
+| Lo que ves | Qué pasa |
+|---|---|
+| `el DISCORD_TOKEN del .env no es valido` | Vuelve a copiar el token del Developer Portal (Bot > Reset Token) y repite `npm run configurar`. |
+| `no tengo permiso para registrar comandos` | Invita al bot otra vez con el scope `applications.commands`, o revisa que el GUILD_ID sea el correcto. |
+| `CLIENT_ID o GUILD_ID incorrectos` | Cópialos otra vez: el Application ID está en General Information; el del servidor, con clic derecho > Copiar ID. |
+| Los comandos no salen en Discord | Si dejaste el GUILD_ID vacío, Discord tarda hasta 1 hora. Rellénalo y reinicia. |
+| `No he podido crear el canal` | Al bot le faltan **Gestionar canales** y **Gestionar roles**, o la categoría configurada ya no existe. |
 
 ## Comandos
 
@@ -212,6 +261,8 @@ un formulario.
 ## Estructura
 
 ```
+start.bat / start.sh   arrancar con doble clic (Windows) o ./start.sh
+Dockerfile             para levantarlo en un VPS con docker compose
 config.json            niveles y botones por defecto
 src/index.js           arranque del bot
 src/deploy-commands.js registro de los comandos slash
@@ -223,6 +274,7 @@ src/lib/cuentas.js     registro privado de cuentas por nivel
 src/lib/permisos.js    quien puede ver el registro (owner y admins)
 src/lib/tickets.js     crear, cerrar, reabrir y transcripciones
 src/lib/store.js       memoria: data/db.json
+scripts/configurar.js  asistente que crea el .env
 scripts/prueba-humo.js prueba sin conexion
 ```
 
