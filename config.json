@@ -7,33 +7,33 @@
     "peligro": "#ED4245"
   },
   "niveles": [
-    { "id": "level1", "nombre": "Level 1", "emoji": "🥉", "precio": 5 },
-    { "id": "level2", "nombre": "Level 2", "emoji": "🥈", "precio": 10 },
-    { "id": "level3", "nombre": "Level 3", "emoji": "🥇", "precio": 20 }
+    { "id": "level1", "nombre": "Level 1", "emoji": "🥉", "valor": 5 },
+    { "id": "level2", "nombre": "Level 2", "emoji": "🥈", "valor": 10 },
+    { "id": "level3", "nombre": "Level 3", "emoji": "🥇", "valor": 20 }
   ],
   "tiposTicket": [
     {
-      "id": "compra",
-      "nombre": "Comprar cuentas",
-      "emoji": "🛒",
-      "descripcion": "Abre un ticket para pedir cuentas por niveles",
-      "conCuentas": true,
-      "mensaje": "Indica las cuentas que quieres con el boton **Gestionar cuentas**. El staff te atendera en cuanto pueda."
+      "id": "cuentas",
+      "nombre": "Cuentas",
+      "emoji": "👤",
+      "descripcion": "Todo lo relacionado con tus cuentas",
+      "registroCuentas": true,
+      "mensaje": "Cuentanos que necesitas y el staff te atendera en cuanto pueda."
     },
     {
       "id": "soporte",
       "nombre": "Soporte",
       "emoji": "🛠️",
-      "descripcion": "Problemas con un pedido o con el servidor",
-      "conCuentas": false,
+      "descripcion": "Problemas con el servidor o con el servicio",
+      "registroCuentas": true,
       "mensaje": "Explica tu problema con el maximo detalle posible y espera a que te atienda el staff."
     },
     {
       "id": "dudas",
       "nombre": "Dudas",
       "emoji": "❓",
-      "descripcion": "Preguntas generales antes de comprar",
-      "conCuentas": false,
+      "descripcion": "Preguntas generales",
+      "registroCuentas": false,
       "mensaje": "Escribe tu duda y el staff te respondera lo antes posible."
     }
   ]

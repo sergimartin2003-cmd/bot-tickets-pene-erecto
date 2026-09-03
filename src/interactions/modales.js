@@ -4,14 +4,15 @@ const { MessageFlags } = require('discord.js');
 
 const config = require('../config');
 const store = require('../lib/store');
-const pedidos = require('../lib/pedidos');
+const cuentas = require('../lib/cuentas');
 const tickets = require('../lib/tickets');
+const { esAdmin, AVISO_SOLO_ADMIN } = require('../lib/permisos');
 
 function efimero(contenido) {
   return { content: contenido, flags: MessageFlags.Ephemeral };
 }
 
-/** Lee un campo del modal y lo convierte a numero entero (admite vacio). */
+/** Lee un campo del formulario y lo convierte a numero entero (admite vacio). */
 function leerNumero(interaction, campoId, { permitirNegativo = false } = {}) {
   const crudo = (interaction.fields.getTextInputValue(campoId) || '').trim().replace(',', '.');
   if (crudo === '') return { valor: 0 };
@@ -23,10 +24,22 @@ function leerNumero(interaction, campoId, { permitirNegativo = false } = {}) {
   return { valor: Math.trunc(numero) };
 }
 
+/**
+ * Tras guardar, repinta el panel privado. Si el formulario se abrio desde el
+ * propio panel efimero, lo actualiza en su sitio; si no, responde con uno nuevo.
+ */
+async function responderConPanel(interaction, aviso) {
+  const vista = cuentas.vistaPanel(interaction.channelId);
+  if (interaction.isFromMessage()) {
+    return interaction.update({ ...vista, content: aviso });
+  }
+  return interaction.reply({ ...vista, content: aviso, flags: MessageFlags.Ephemeral });
+}
+
 async function manejar(interaction) {
   const { customId } = interaction;
 
-  // Abrir ticket desde el panel.
+  // Abrir ticket desde el panel publico.
   if (customId.startsWith('ticket:abrir:modal:')) {
     const tipo = tickets.tipoPorId(customId.split(':')[3]);
     if (!tipo) {
@@ -44,24 +57,25 @@ async function manejar(interaction) {
       motivo,
     });
 
-    if (res.error) {
-      await interaction.editReply(`❌ ${res.error}`);
-      return true;
-    }
-
-    await interaction.editReply(`✅ Ticket abierto: ${res.canal}`);
+    await interaction.editReply(res.error ? `❌ ${res.error}` : `✅ Ticket abierto: ${res.canal}`);
     return true;
   }
 
-  // Editar todas las cantidades del pedido de una vez.
-  if (customId === 'pedido:editar:modal') {
-    const ticket = store.getTicket(interaction.channelId);
-    if (!ticket || ticket.cerrado) {
-      await interaction.reply(efimero('❌ Este ticket no esta abierto.'));
+  // A partir de aqui todo es registro de cuentas: solo owner y admins.
+  if (customId === 'cuentas:editar:modal' || customId.startsWith('cuentas:nivel:modal:')) {
+    if (!esAdmin(interaction.member)) {
+      await interaction.reply(efimero(AVISO_SOLO_ADMIN));
       return true;
     }
+    if (!store.getTicket(interaction.channelId)) {
+      await interaction.reply(efimero('❌ Este canal ya no consta como ticket.'));
+      return true;
+    }
+  }
 
-    const pedido = pedidos.getPedido(interaction.channelId);
+  // Editar todas las cantidades de una vez.
+  if (customId === 'cuentas:editar:modal') {
+    const registro = cuentas.getCuentas(interaction.channelId);
     const errores = [];
 
     for (const nivel of config.niveles) {
@@ -70,7 +84,7 @@ async function manejar(interaction) {
         errores.push(`**${nivel.nombre}**: ${error}`);
         continue;
       }
-      pedido[nivel.id] = valor;
+      registro[nivel.id] = valor;
     }
 
     if (errores.length) {
@@ -78,28 +92,17 @@ async function manejar(interaction) {
       return true;
     }
 
-    const guardado = pedidos.setPedido(interaction.channelId, pedido);
-    await pedidos.refrescarMensajePedido(interaction.channel);
-
-    await interaction.reply(
-      efimero(
-        `✅ Pedido actualizado: **${pedidos.resumenCorto(guardado)}** · **${pedidos.formatearPrecio(pedidos.totalPrecio(guardado))}**`,
-      ),
-    );
+    const guardado = cuentas.setCuentas(interaction.channelId, registro);
+    await cuentas.refrescarRegistro(interaction.guild, interaction.channelId);
+    await responderConPanel(interaction, `✅ Guardado: **${cuentas.resumenCorto(guardado)}**`);
     return true;
   }
 
-  // Sumar cuentas de un nivel concreto.
-  if (customId.startsWith('pedido:nivel:modal:')) {
+  // Sumar o restar cuentas de un nivel concreto.
+  if (customId.startsWith('cuentas:nivel:modal:')) {
     const nivel = config.nivelPorId(customId.split(':')[3]);
     if (!nivel) {
       await interaction.reply(efimero('❌ Ese nivel ya no existe.'));
-      return true;
-    }
-
-    const ticket = store.getTicket(interaction.channelId);
-    if (!ticket || ticket.cerrado) {
-      await interaction.reply(efimero('❌ Este ticket no esta abierto.'));
       return true;
     }
 
@@ -109,13 +112,11 @@ async function manejar(interaction) {
       return true;
     }
 
-    const guardado = pedidos.sumarNivel(interaction.channelId, nivel.id, valor);
-    await pedidos.refrescarMensajePedido(interaction.channel);
-
-    await interaction.reply(
-      efimero(
-        `✅ ${nivel.nombre}: \`${guardado[nivel.id]}\` cuenta(s).\n**Pedido:** ${pedidos.resumenCorto(guardado)} · **${pedidos.formatearPrecio(pedidos.totalPrecio(guardado))}**`,
-      ),
+    const guardado = cuentas.sumarNivel(interaction.channelId, nivel.id, valor);
+    await cuentas.refrescarRegistro(interaction.guild, interaction.channelId);
+    await responderConPanel(
+      interaction,
+      `✅ ${nivel.nombre}: \`${guardado[nivel.id]}\` cuenta(s) en total.`,
     );
     return true;
   }

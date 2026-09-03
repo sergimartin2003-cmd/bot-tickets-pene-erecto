@@ -1,19 +1,26 @@
 'use strict';
 
 /**
- * Prueba rapida de la logica de pedidos sin conectar con Discord.
+ * Prueba rapida del registro de cuentas sin conectar con Discord.
  * Uso: npm run prueba
  *
- * Simula el canal y las interacciones para comprobar que las cuentas por
- * nivel se suman, se restan, se validan y respetan los permisos.
+ * Comprueba que las cuentas por nivel se suman, se restan y se validan bien,
+ * y sobre todo que SOLO el dueño del servidor y los administradores pueden
+ * verlas o tocarlas.
  */
 
 const store = require('../src/lib/store');
-const pedidos = require('../src/lib/pedidos');
+const cuentas = require('../src/lib/cuentas');
+const config = require('../src/config');
 const handlerModales = require('../src/interactions/modales');
 const handlerBotones = require('../src/interactions/botones');
+const handlerSelects = require('../src/interactions/selects');
+const comandoCuentas = require('../src/commands/cuentas');
 
 const CANAL_ID = 'prueba-canal';
+const GUILD_ID = 'prueba-guild';
+const OWNER_ID = 'dueño';
+
 let fallos = 0;
 
 function comprobar(descripcion, condicion) {
@@ -21,127 +28,171 @@ function comprobar(descripcion, condicion) {
   if (!condicion) fallos += 1;
 }
 
-const mensajes = [];
-const canal = {
-  id: CANAL_ID,
-  guild: { id: 'prueba-guild', channels: { cache: new Map(), fetch: async () => null } },
+const mensajesRegistro = [];
+const canalRegistro = {
+  id: 'canal-registro',
+  isTextBased: () => true,
   messages: {
     fetch: async (id) => {
-      const m = mensajes.find((x) => x.id === id);
+      const m = mensajesRegistro.find((x) => x.id === id);
       if (!m) throw new Error('mensaje no encontrado');
       return m;
     },
   },
-  async send(contenido) {
-    const mensaje = {
-      id: `msg${mensajes.length}`,
-      ...contenido,
-      edit: async (nuevo) => Object.assign(mensaje, nuevo),
-      pin: async () => {},
-    };
-    mensajes.push(mensaje);
+  send: async (contenido) => {
+    const mensaje = { id: `reg${mensajesRegistro.length}`, ...contenido, edit: async (n) => Object.assign(mensaje, n) };
+    mensajesRegistro.push(mensaje);
     return mensaje;
   },
 };
 
-function interaccion({ customId, campos = {}, userId = 'autor', staff = false }) {
+const guild = {
+  id: GUILD_ID,
+  ownerId: OWNER_ID,
+  channels: {
+    cache: new Map([['canal-registro', canalRegistro]]),
+    fetch: async () => canalRegistro,
+  },
+};
+
+/**
+ * rol: 'owner' (dueño del servidor), 'admin' (permiso Administrador),
+ * 'staff' (staff normal, sin Administrador) o 'cliente'.
+ */
+function interaccion({ customId, campos = {}, rol = 'admin', valores = [], subcomando, opciones = {} }) {
+  const userId = rol === 'owner' ? OWNER_ID : rol;
   const respuestas = [];
   return {
     customId,
     channelId: CANAL_ID,
-    channel: canal,
-    guild: canal.guild,
+    guild,
+    values: valores,
     user: { id: userId, tag: `${userId}#0001`, toString: () => `<@${userId}>` },
     member: {
       id: userId,
-      guild: canal.guild,
+      guild,
       roles: { cache: new Map() },
-      permissions: { has: () => staff },
+      // Solo 'admin' tiene el permiso de Administrador; el staff no.
+      permissions: { has: () => rol === 'admin' },
     },
     fields: { getTextInputValue: (id) => campos[id] ?? '' },
-    reply: async (c) => respuestas.push(typeof c === 'string' ? c : c.content),
-    editReply: async (c) => respuestas.push(typeof c === 'string' ? c : c.content),
+    options: {
+      getSubcommand: () => subcomando,
+      getString: (n) => opciones[n] ?? null,
+      getInteger: (n) => opciones[n] ?? null,
+    },
+    isFromMessage: () => true,
+    reply: async (c) => respuestas.push(typeof c === 'string' ? c : c.content ?? '(embed)'),
+    editReply: async (c) => respuestas.push(typeof c === 'string' ? c : c.content ?? '(embed)'),
+    update: async (c) => respuestas.push(typeof c === 'string' ? c : c.content ?? '(embed)'),
     deferReply: async () => {},
     followUp: async (c) => respuestas.push(c.content),
     showModal: async (m) => respuestas.push(`modal:${m.toJSON().custom_id}`),
-    update: async (c) => respuestas.push(c.content),
     respuestas,
   };
 }
 
+const denegado = (i) => String(i.respuestas[0] || '').includes('Solo el dueño del servidor');
+
 async function main() {
+  store.setGuild(GUILD_ID, { canalCuentasId: 'canal-registro' });
   store.setTicket(CANAL_ID, {
-    guildId: 'prueba-guild',
-    usuarioId: 'autor',
-    tipoId: 'compra',
+    guildId: GUILD_ID,
+    usuarioId: 'cliente',
+    tipoId: 'cuentas',
     numero: 1,
     cerrado: false,
-    pedido: pedidos.pedidoVacio(),
-    pedidoConfirmado: false,
+    cuentas: cuentas.registroVacio(),
   });
 
-  console.log('\nPedido de cuentas por nivel');
+  const [n1, n2, n3] = config.niveles;
 
-  const niveles = require('../src/config').niveles;
-  const [n1, n2, n3] = niveles;
+  console.log('\nRegistro de cuentas');
 
   let i = interaccion({
-    customId: 'pedido:editar:modal',
+    customId: 'cuentas:editar:modal',
     campos: { [`nivel:${n1.id}`]: '2', [`nivel:${n2.id}`]: '5', [`nivel:${n3.id}`]: '1' },
   });
   await handlerModales.manejar(i);
-  let pedido = pedidos.getPedido(CANAL_ID);
+  let registro = cuentas.getCuentas(CANAL_ID);
   comprobar(
-    `el modal guarda 2 / 5 / 1 (${pedidos.resumenCorto(pedido)})`,
-    pedido[n1.id] === 2 && pedido[n2.id] === 5 && pedido[n3.id] === 1,
+    `el formulario guarda 2 / 5 / 1 (${cuentas.resumenCorto(registro)})`,
+    registro[n1.id] === 2 && registro[n2.id] === 5 && registro[n3.id] === 1,
   );
 
-  i = interaccion({ customId: `pedido:nivel:modal:${n2.id}`, campos: { cantidad: '3' } });
+  i = interaccion({ customId: `cuentas:nivel:modal:${n2.id}`, campos: { cantidad: '3' } });
   await handlerModales.manejar(i);
-  comprobar('sumar 3 al nivel 2 da 8', pedidos.getPedido(CANAL_ID)[n2.id] === 8);
+  comprobar('sumar 3 al nivel 2 da 8', cuentas.getCuentas(CANAL_ID)[n2.id] === 8);
 
-  i = interaccion({ customId: `pedido:nivel:modal:${n2.id}`, campos: { cantidad: '-4' } });
+  i = interaccion({ customId: `cuentas:nivel:modal:${n2.id}`, campos: { cantidad: '-4' } });
   await handlerModales.manejar(i);
-  comprobar('restar 4 al nivel 2 da 4', pedidos.getPedido(CANAL_ID)[n2.id] === 4);
+  comprobar('restar 4 al nivel 2 da 4', cuentas.getCuentas(CANAL_ID)[n2.id] === 4);
 
-  i = interaccion({ customId: `pedido:nivel:modal:${n1.id}`, campos: { cantidad: '-99' } });
+  i = interaccion({ customId: `cuentas:nivel:modal:${n1.id}`, campos: { cantidad: '-99' } });
   await handlerModales.manejar(i);
-  comprobar('no se baja de cero', pedidos.getPedido(CANAL_ID)[n1.id] === 0);
+  comprobar('no se baja de cero', cuentas.getCuentas(CANAL_ID)[n1.id] === 0);
 
-  i = interaccion({ customId: `pedido:nivel:modal:${n3.id}`, campos: { cantidad: 'abc' } });
+  i = interaccion({ customId: `cuentas:nivel:modal:${n3.id}`, campos: { cantidad: 'abc' } });
   await handlerModales.manejar(i);
   comprobar('una cantidad invalida se rechaza', i.respuestas[0].includes('no es un numero valido'));
 
-  console.log('\nPrecios');
-  pedidos.setPedido(CANAL_ID, { [n1.id]: 2, [n2.id]: 5, [n3.id]: 1 });
-  pedido = pedidos.getPedido(CANAL_ID);
-  const esperado = 2 * n1.precio + 5 * n2.precio + 1 * n3.precio;
-  comprobar(`el total cuadra (${pedidos.formatearPrecio(pedidos.totalPrecio(pedido))})`, pedidos.totalPrecio(pedido) === esperado);
-  comprobar('el total de cuentas es 8', pedidos.totalCuentas(pedido) === 8);
+  console.log('\nValores');
+  cuentas.setCuentas(CANAL_ID, { [n1.id]: 2, [n2.id]: 5, [n3.id]: 1 });
+  registro = cuentas.getCuentas(CANAL_ID);
+  const esperado = 2 * cuentas.valorNivel(n1) + 5 * cuentas.valorNivel(n2) + 1 * cuentas.valorNivel(n3);
+  comprobar(`el valor total cuadra (${cuentas.formatearValor(cuentas.valorTotal(registro))})`, cuentas.valorTotal(registro) === esperado);
+  comprobar('el total de cuentas es 8', cuentas.totalCuentas(registro) === 8);
 
-  console.log('\nPermisos');
-  i = interaccion({ customId: 'pedido:editar', userId: 'intruso' });
+  console.log('\nQuien puede ver el registro');
+
+  i = interaccion({ customId: 'cuentas:editar', rol: 'cliente' });
   await handlerBotones.manejar(i);
-  comprobar('un tercero no puede editar', i.respuestas[0].includes('Solo el autor'));
+  comprobar('el cliente del ticket NO puede', denegado(i));
 
-  i = interaccion({ customId: 'pedido:confirmar', userId: 'autor' });
+  i = interaccion({ customId: 'cuentas:editar', rol: 'staff' });
   await handlerBotones.manejar(i);
-  comprobar('el autor no puede confirmar', i.respuestas[0].includes('Solo el staff'));
+  comprobar('el staff normal NO puede', denegado(i));
 
-  i = interaccion({ customId: 'pedido:confirmar', userId: 'staff', staff: true });
+  i = interaccion({ customId: 'cuentas:nivel', rol: 'staff', valores: [n1.id] });
+  await handlerSelects.manejar(i);
+  comprobar('el staff tampoco por el menu de niveles', denegado(i));
+
+  i = interaccion({ customId: 'cuentas:editar:modal', rol: 'cliente', campos: { [`nivel:${n1.id}`]: '99' } });
+  await handlerModales.manejar(i);
+  comprobar('el cliente no puede colar un formulario', denegado(i) && cuentas.getCuentas(CANAL_ID)[n1.id] === 2);
+
+  i = interaccion({ rol: 'staff', subcomando: 'ver' });
+  await comandoCuentas.execute(i);
+  comprobar('/cuentas ver rechaza al staff', denegado(i));
+
+  i = interaccion({ customId: 'cuentas:editar', rol: 'admin' });
   await handlerBotones.manejar(i);
-  comprobar('el staff si puede confirmar', store.getTicket(CANAL_ID).pedidoConfirmado === true);
+  comprobar('el administrador si puede', i.respuestas[0] === 'modal:cuentas:editar:modal');
 
-  i = interaccion({ customId: 'pedido:editar', userId: 'autor' });
+  i = interaccion({ customId: 'cuentas:editar', rol: 'owner' });
   await handlerBotones.manejar(i);
-  comprobar('confirmado bloquea al autor', i.respuestas[0].includes('confirmado'));
+  comprobar('el dueño del servidor si puede', i.respuestas[0] === 'modal:cuentas:editar:modal');
 
-  i = interaccion({ customId: 'pedido:reabrir', userId: 'staff', staff: true });
-  await handlerBotones.manejar(i);
-  comprobar('el staff puede reabrir el pedido', store.getTicket(CANAL_ID).pedidoConfirmado === false);
+  console.log('\nComando /cuentas');
 
-  console.log('\nMensaje del pedido');
-  comprobar('solo se crea un mensaje de pedido, se reedita', mensajes.length === 1);
+  i = interaccion({ rol: 'admin', subcomando: 'poner', opciones: { nivel: n3.id, cantidad: 7 } });
+  await comandoCuentas.execute(i);
+  comprobar('/cuentas poner fija la cantidad', cuentas.getCuentas(CANAL_ID)[n3.id] === 7);
+
+  i = interaccion({ rol: 'owner', subcomando: 'quitar', opciones: { nivel: n3.id, cantidad: 2 } });
+  await comandoCuentas.execute(i);
+  comprobar('/cuentas quitar resta', cuentas.getCuentas(CANAL_ID)[n3.id] === 5);
+
+  i = interaccion({ rol: 'admin', subcomando: 'vaciar' });
+  await comandoCuentas.execute(i);
+  comprobar('/cuentas vaciar deja todo a cero', cuentas.totalCuentas(cuentas.getCuentas(CANAL_ID)) === 0);
+
+  console.log('\nFicha en el canal privado');
+  comprobar('se mantiene una sola ficha por ticket', mensajesRegistro.length === 1);
+  comprobar(
+    'la ficha apunta al ticket y al usuario',
+    JSON.stringify(mensajesRegistro[0].embeds[0].toJSON()).includes('<@cliente>'),
+  );
 
   store.borrarTicket(CANAL_ID);
 

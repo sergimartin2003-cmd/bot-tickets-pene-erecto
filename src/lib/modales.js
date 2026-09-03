@@ -8,20 +8,23 @@ const {
 } = require('discord.js');
 
 const config = require('../config');
-const pedidos = require('./pedidos');
+const cuentas = require('./cuentas');
 
-/** Modal con un campo por nivel: cantidades absolutas del pedido. */
-function modalEditarPedido(pedidoActual) {
+/** Formulario con un campo por nivel: cantidades exactas que posee el usuario. */
+function modalEditarCuentas(registroActual) {
   const modal = new ModalBuilder()
-    .setCustomId('pedido:editar:modal')
-    .setTitle('Cuentas del pedido');
+    .setCustomId('cuentas:editar:modal')
+    .setTitle('Cuentas que posee');
 
   for (const nivel of config.niveles) {
-    const actual = pedidoActual?.[nivel.id] ?? 0;
+    const actual = registroActual?.[nivel.id] ?? 0;
+    const valor = cuentas.valorNivel(nivel);
     const input = new TextInputBuilder()
       .setCustomId(`nivel:${nivel.id}`)
       .setLabel(`Cuentas de ${nivel.nombre}`.slice(0, 45))
-      .setPlaceholder(`Ej: 2 (0 = ninguna) · ${pedidos.formatearPrecio(nivel.precio)} c/u`.slice(0, 100))
+      .setPlaceholder(
+        `Ej: 2 (0 = ninguna)${valor > 0 ? ` · ${cuentas.formatearValor(valor)} c/u` : ''}`.slice(0, 100),
+      )
       .setValue(String(actual))
       .setStyle(TextInputStyle.Short)
       .setMaxLength(3)
@@ -32,11 +35,11 @@ function modalEditarPedido(pedidoActual) {
   return modal;
 }
 
-/** Modal de un solo nivel: cuantas cuentas de ese nivel se suman. */
+/** Formulario de un solo nivel: cuantas cuentas de ese nivel se suman o restan. */
 function modalCantidadNivel(nivel) {
   const input = new TextInputBuilder()
     .setCustomId('cantidad')
-    .setLabel(`Cuentas de ${nivel.nombre} a añadir`.slice(0, 45))
+    .setLabel(`Cuentas de ${nivel.nombre} a sumar`.slice(0, 45))
     .setPlaceholder('Ej: 2 · usa un numero negativo para restar')
     .setValue('1')
     .setStyle(TextInputStyle.Short)
@@ -44,21 +47,17 @@ function modalCantidadNivel(nivel) {
     .setRequired(true);
 
   return new ModalBuilder()
-    .setCustomId(`pedido:nivel:modal:${nivel.id}`)
-    .setTitle(`Añadir ${nivel.nombre}`.slice(0, 45))
+    .setCustomId(`cuentas:nivel:modal:${nivel.id}`)
+    .setTitle(`Cuentas de ${nivel.nombre}`.slice(0, 45))
     .addComponents(new ActionRowBuilder().addComponents(input));
 }
 
-/** Modal con el motivo del ticket, se pide al abrirlo. */
+/** Motivo del ticket, se pide al abrirlo desde el panel. */
 function modalAbrirTicket(tipo) {
   const input = new TextInputBuilder()
     .setCustomId('motivo')
     .setLabel('Cuentanos brevemente que necesitas')
-    .setPlaceholder(
-      tipo.conCuentas
-        ? 'Ej: quiero 2 de Level 1, 5 de Level 2 y 1 de Level 3'
-        : 'Ej: no me llego el pedido de ayer',
-    )
+    .setPlaceholder('Ej: no puedo entrar en mi cuenta desde ayer')
     .setStyle(TextInputStyle.Paragraph)
     .setMaxLength(500)
     .setRequired(false);
@@ -69,4 +68,4 @@ function modalAbrirTicket(tipo) {
     .addComponents(new ActionRowBuilder().addComponents(input));
 }
 
-module.exports = { modalEditarPedido, modalCantidadNivel, modalAbrirTicket };
+module.exports = { modalEditarCuentas, modalCantidadNivel, modalAbrirTicket };

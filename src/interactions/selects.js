@@ -4,9 +4,9 @@ const { MessageFlags } = require('discord.js');
 
 const config = require('../config');
 const store = require('../lib/store');
-const pedidos = require('../lib/pedidos');
 const tickets = require('../lib/tickets');
 const modales = require('../lib/modales');
+const { esAdmin, AVISO_SOLO_ADMIN } = require('../lib/permisos');
 
 async function manejar(interaction) {
   // Panel publico: el usuario elige el tipo de ticket.
@@ -23,29 +23,16 @@ async function manejar(interaction) {
     return true;
   }
 
-  // Dentro del ticket: elegir un nivel para añadir cuentas.
-  if (interaction.customId === 'pedido:nivel') {
-    const ticket = store.getTicket(interaction.channelId);
-    if (!ticket || ticket.cerrado) {
-      await interaction.reply({
-        content: '❌ Este ticket no esta abierto.',
-        flags: MessageFlags.Ephemeral,
-      });
+  // Panel privado de cuentas: elegir nivel para sumar o restar.
+  if (interaction.customId === 'cuentas:nivel') {
+    if (!esAdmin(interaction.member)) {
+      await interaction.reply({ content: AVISO_SOLO_ADMIN, flags: MessageFlags.Ephemeral });
       return true;
     }
 
-    const esAutor = ticket.usuarioId === interaction.user.id;
-    const esStaff = tickets.esStaff(interaction.member);
-    if (!esAutor && !esStaff) {
+    if (!store.getTicket(interaction.channelId)) {
       await interaction.reply({
-        content: '❌ Solo el autor del ticket o el staff pueden modificar el pedido.',
-        flags: MessageFlags.Ephemeral,
-      });
-      return true;
-    }
-    if (ticket.pedidoConfirmado && !esStaff) {
-      await interaction.reply({
-        content: '🔒 El pedido ya esta confirmado por el staff.',
+        content: '❌ Este canal ya no consta como ticket.',
         flags: MessageFlags.Ephemeral,
       });
       return true;
@@ -64,4 +51,4 @@ async function manejar(interaction) {
   return false;
 }
 
-module.exports = { manejar, pedidos };
+module.exports = { manejar };

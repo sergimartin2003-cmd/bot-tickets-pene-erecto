@@ -35,7 +35,7 @@ function escribir() {
   fs.renameSync(tmp, RUTA);
 }
 
-// Agrupa las escrituras del mismo tick: un pedido puede tocar varias claves.
+// Agrupa las escrituras del mismo tick: un cambio puede tocar varias claves.
 function guardar() {
   if (guardadoPendiente) return;
   guardadoPendiente = setTimeout(() => {
@@ -55,6 +55,7 @@ const CONFIG_GUILD_POR_DEFECTO = {
   categoriaId: null,
   categoriaCerradosId: null,
   logsId: null,
+  canalCuentasId: null,
   staffRolId: null,
   contador: 0,
 };

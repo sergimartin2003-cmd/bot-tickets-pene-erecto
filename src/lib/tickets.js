@@ -12,7 +12,7 @@ const {
 
 const config = require('../config');
 const store = require('./store');
-const pedidos = require('./pedidos');
+const cuentas = require('./cuentas');
 
 const LIMITE_TICKETS_ABIERTOS = 3;
 
@@ -151,9 +151,8 @@ async function crearTicket({ guild, miembro, tipo, motivo }) {
     motivo: motivo || null,
     cerrado: false,
     reclamadoPor: null,
-    pedido: pedidos.pedidoVacio(),
-    pedidoConfirmado: false,
-    mensajePedidoId: null,
+    cuentas: cuentas.registroVacio(),
+    mensajeRegistroId: null,
     creadoEn: Date.now(),
   });
 
@@ -177,8 +176,10 @@ async function crearTicket({ guild, miembro, tipo, motivo }) {
     components: botonesTicket(),
   });
 
-  if (tipo.conCuentas) {
-    await pedidos.refrescarMensajePedido(canal);
+  // El registro de cuentas nunca se publica en el canal del ticket: si hay un
+  // canal privado configurado, la ficha se crea alli.
+  if (tipo.registroCuentas) {
+    await cuentas.refrescarRegistro(guild, canal.id);
   }
 
   await log(guild, {
@@ -240,6 +241,8 @@ async function cerrarTicket(canal, quienCierra, motivo) {
 
   await canal.send({ embeds: [embed], components: botonesTicket({ cerrado: true }) });
 
+  await cuentas.refrescarRegistro(canal.guild, canal.id);
+
   const transcripcion = await generarTranscripcion(canal);
   await log(canal.guild, {
     titulo: `🔒 Ticket #${ticket.numero} cerrado`,
@@ -247,7 +250,6 @@ async function cerrarTicket(canal, quienCierra, motivo) {
     campos: [
       { name: 'Usuario', value: `<@${ticket.usuarioId}>`, inline: true },
       { name: 'Cerrado por', value: `${quienCierra}`, inline: true },
-      { name: 'Pedido', value: pedidos.resumenCorto(pedidos.getPedido(canal.id)), inline: false },
     ],
     ficheros: transcripcion ? [transcripcion] : [],
   });

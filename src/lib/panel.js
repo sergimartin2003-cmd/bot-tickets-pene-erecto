@@ -1,17 +1,13 @@
 'use strict';
 
-const {
-  EmbedBuilder,
-  ActionRowBuilder,
-  StringSelectMenuBuilder,
-} = require('discord.js');
+const { EmbedBuilder, ActionRowBuilder, StringSelectMenuBuilder } = require('discord.js');
 
 const config = require('../config');
-const pedidos = require('./pedidos');
 
+// El panel es publico: aqui no se menciona nada del registro de cuentas.
 function embedPanel({ titulo, descripcion } = {}) {
-  const listaNiveles = config.niveles
-    .map((n) => `${n.emoji || '•'} **${n.nombre}** — ${pedidos.formatearPrecio(n.precio)} por cuenta`)
+  const tipos = config.tiposTicket
+    .map((t) => `${t.emoji || '•'} **${t.nombre}** — ${t.descripcion || ''}`.trim())
     .join('\n');
 
   return new EmbedBuilder()
@@ -19,10 +15,10 @@ function embedPanel({ titulo, descripcion } = {}) {
     .setColor(config.colores.principal)
     .setDescription(
       descripcion ||
-        'Elige abajo el tipo de ticket que necesitas y se creara un canal privado para ti.\n' +
-          'Dentro del ticket de compra podras apuntar cuantas cuentas quieres de cada nivel.',
+        'Elige abajo el tipo de ticket que necesitas y se creara un canal privado ' +
+          'donde solo estaras tu y el staff.',
     )
-    .addFields({ name: 'Niveles disponibles', value: listaNiveles })
+    .addFields({ name: 'Tipos de ticket', value: tipos })
     .setFooter({ text: 'Abusar del sistema de tickets puede conllevar sancion' });
 }
 

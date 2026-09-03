@@ -10,7 +10,7 @@ const {
 
 const config = require('../config');
 const store = require('../lib/store');
-const pedidos = require('../lib/pedidos');
+const cuentas = require('../lib/cuentas');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -50,6 +50,16 @@ module.exports = {
             .setRequired(true)))
     .addSubcommand((s) =>
       s
+        .setName('canal-cuentas')
+        .setDescription('Canal PRIVADO donde se lleva la ficha de cuentas de cada ticket')
+        .addChannelOption((o) =>
+          o
+            .setName('canal')
+            .setDescription('Canal visible solo para administradores')
+            .addChannelTypes(ChannelType.GuildText)
+            .setRequired(true)))
+    .addSubcommand((s) =>
+      s
         .setName('staff')
         .setDescription('Rol que puede ver y gestionar los tickets')
         .addRoleOption((o) => o.setName('rol').setDescription('Rol de staff').setRequired(true)))
@@ -83,6 +93,17 @@ module.exports = {
       return interaction.reply({ content: `✅ Logs en ${canal}.`, flags: MessageFlags.Ephemeral });
     }
 
+    if (sub === 'canal-cuentas') {
+      const canal = interaction.options.getChannel('canal');
+      store.setGuild(guildId, { canalCuentasId: canal.id });
+      return interaction.reply({
+        content:
+          `✅ Fichas de cuentas en ${canal}.\n` +
+          '⚠️ Asegurate de que ese canal solo lo pueden ver los administradores: el bot escribe ahi las cuentas de cada ticket.',
+        flags: MessageFlags.Ephemeral,
+      });
+    }
+
     if (sub === 'staff') {
       const rol = interaction.options.getRole('rol');
       store.setGuild(guildId, { staffRolId: rol.id });
@@ -100,12 +121,20 @@ module.exports = {
         { name: 'Categoria abiertos', value: cfg.categoriaId ? `<#${cfg.categoriaId}>` : '`sin configurar`', inline: true },
         { name: 'Categoria cerrados', value: cfg.categoriaCerradosId ? `<#${cfg.categoriaCerradosId}>` : '`sin configurar`', inline: true },
         { name: 'Canal de logs', value: cfg.logsId ? `<#${cfg.logsId}>` : '`sin configurar`', inline: true },
+        {
+          name: 'Canal de fichas de cuentas',
+          value: cfg.canalCuentasId ? `<#${cfg.canalCuentasId}>` : '`sin configurar`',
+          inline: true,
+        },
         { name: 'Rol de staff', value: cfg.staffRolId ? `<@&${cfg.staffRolId}>` : '`sin configurar`', inline: true },
         { name: 'Tickets creados', value: `\`${cfg.contador}\``, inline: true },
         {
           name: 'Niveles (se editan en config.json)',
           value: config.niveles
-            .map((n) => `${n.emoji || '•'} **${n.nombre}** — ${pedidos.formatearPrecio(n.precio)}`)
+            .map((n) => {
+              const valor = cuentas.valorNivel(n);
+              return `${n.emoji || '•'} **${n.nombre}**${valor > 0 ? ` — ${cuentas.formatearValor(valor)}` : ''}`;
+            })
             .join('\n'),
         },
       );
