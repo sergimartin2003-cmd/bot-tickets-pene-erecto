@@ -1,0 +1,40 @@
+{
+  "moneda": "€",
+  "colores": {
+    "principal": "#5865F2",
+    "exito": "#57F287",
+    "aviso": "#FEE75C",
+    "peligro": "#ED4245"
+  },
+  "niveles": [
+    { "id": "level1", "nombre": "Level 1", "emoji": "🥉", "precio": 5 },
+    { "id": "level2", "nombre": "Level 2", "emoji": "🥈", "precio": 10 },
+    { "id": "level3", "nombre": "Level 3", "emoji": "🥇", "precio": 20 }
+  ],
+  "tiposTicket": [
+    {
+      "id": "compra",
+      "nombre": "Comprar cuentas",
+      "emoji": "🛒",
+      "descripcion": "Abre un ticket para pedir cuentas por niveles",
+      "conCuentas": true,
+      "mensaje": "Indica las cuentas que quieres con el boton **Gestionar cuentas**. El staff te atendera en cuanto pueda."
+    },
+    {
+      "id": "soporte",
+      "nombre": "Soporte",
+      "emoji": "🛠️",
+      "descripcion": "Problemas con un pedido o con el servidor",
+      "conCuentas": false,
+      "mensaje": "Explica tu problema con el maximo detalle posible y espera a que te atienda el staff."
+    },
+    {
+      "id": "dudas",
+      "nombre": "Dudas",
+      "emoji": "❓",
+      "descripcion": "Preguntas generales antes de comprar",
+      "conCuentas": false,
+      "mensaje": "Escribe tu duda y el staff te respondera lo antes posible."
+    }
+  ]
+}

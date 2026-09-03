@@ -1,0 +1,24 @@
+{
+  "name": "bot-tickets",
+  "version": "1.0.0",
+  "description": "Bot de tickets para Discord con gestion de cuentas por niveles (Level 1/2/3)",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "deploy": "node src/deploy-commands.js",
+    "prueba": "node scripts/prueba-humo.js"
+  },
+  "keywords": [
+    "discord",
+    "bot",
+    "tickets"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "discord.js": "^14.16.3",
+    "dotenv": "^16.4.5"
+  },
+  "engines": {
+    "node": ">=18.17.0"
+  }
+}
