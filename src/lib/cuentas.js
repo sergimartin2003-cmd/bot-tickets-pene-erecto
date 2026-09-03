@@ -12,11 +12,11 @@ const config = require('../config');
 const store = require('./store');
 
 /**
- * Registro de las cuentas que POSEE el usuario del ticket, contadas por nivel:
+ * Registro de las cuentas que POSEE cada usuario, contadas por nivel:
  * { level1: 2, level2: 5, level3: 1 }
  *
- * Es informacion privada: solo la ven el dueño del servidor y los
- * administradores, nunca se publica en el canal del ticket.
+ * Se guarda por usuario, no por ticket: si abre otro ticket mas adelante, sus
+ * cuentas siguen ahi. Solo lo ven el dueño del servidor y los administradores.
  */
 
 const MAX_POR_NIVEL = 999;
@@ -25,29 +25,28 @@ function registroVacio() {
   return Object.fromEntries(config.niveles.map((n) => [n.id, 0]));
 }
 
-function getCuentas(canalId) {
-  const ticket = store.getTicket(canalId);
-  return { ...registroVacio(), ...(ticket?.cuentas || {}) };
+function getCuentas(guildId, usuarioId) {
+  return { ...registroVacio(), ...(store.getUsuario(guildId, usuarioId).cuentas || {}) };
 }
 
-function setCuentas(canalId, registro) {
+function setCuentas(guildId, usuarioId, registro) {
   const limpio = registroVacio();
   for (const nivel of config.niveles) {
     limpio[nivel.id] = normalizarCantidad(registro[nivel.id]);
   }
-  store.setTicket(canalId, { cuentas: limpio });
+  store.setUsuario(guildId, usuarioId, { cuentas: limpio });
   return limpio;
 }
 
-/** Suma (o resta, si delta es negativo) cuentas a un nivel concreto. */
-function sumarNivel(canalId, nivelId, delta) {
-  const registro = getCuentas(canalId);
+/** Suma (o resta, si delta es negativo) cuentas de un nivel. */
+function sumarNivel(guildId, usuarioId, nivelId, delta) {
+  const registro = getCuentas(guildId, usuarioId);
   registro[nivelId] = normalizarCantidad((registro[nivelId] || 0) + delta);
-  return setCuentas(canalId, registro);
+  return setCuentas(guildId, usuarioId, registro);
 }
 
-function limpiarCuentas(canalId) {
-  return setCuentas(canalId, registroVacio());
+function limpiarCuentas(guildId, usuarioId) {
+  return setCuentas(guildId, usuarioId, registroVacio());
 }
 
 function normalizarCantidad(valor) {
@@ -56,27 +55,8 @@ function normalizarCantidad(valor) {
   return Math.min(numero, MAX_POR_NIVEL);
 }
 
-function totalCuentas(registro) {
+function total(registro) {
   return config.niveles.reduce((suma, n) => suma + (registro[n.id] || 0), 0);
-}
-
-function valorNivel(nivel) {
-  return Number(nivel.valor ?? nivel.precio ?? 0) || 0;
-}
-
-function valorTotal(registro) {
-  return config.niveles.reduce((suma, n) => suma + (registro[n.id] || 0) * valorNivel(n), 0);
-}
-
-/** true si algun nivel tiene valor asignado en config.json. */
-function hayValores() {
-  return config.niveles.some((n) => valorNivel(n) > 0);
-}
-
-function formatearValor(cantidad) {
-  const numero = Math.round(cantidad * 100) / 100;
-  const texto = Number.isInteger(numero) ? String(numero) : numero.toFixed(2);
-  return `${texto}${config.moneda}`;
 }
 
 /** Resumen en una linea: "2x Level 1, 5x Level 2, 1x Level 3" */
@@ -84,77 +64,73 @@ function resumenCorto(registro) {
   const partes = config.niveles
     .filter((n) => (registro[n.id] || 0) > 0)
     .map((n) => `${registro[n.id]}x ${n.nombre}`);
-  return partes.length ? partes.join(', ') : 'ninguna cuenta registrada';
+  return partes.length ? partes.join(', ') : 'ninguna cuenta';
 }
 
-function embedCuentas(registro, { usuarioId, numeroTicket, canalId } = {}) {
-  const total = totalCuentas(registro);
-  const conValores = hayValores();
+function embedCuentas(guildId, usuarioId) {
+  const registro = getCuentas(guildId, usuarioId);
+  const usuario = store.getUsuario(guildId, usuarioId);
 
   const lineas = config.niveles.map((nivel) => {
     const cantidad = registro[nivel.id] || 0;
     const emoji = nivel.emoji ? `${nivel.emoji} ` : '';
-    const valor = valorNivel(nivel);
-    const subtotal = conValores && valor > 0 && cantidad > 0 ? ` — ${formatearValor(cantidad * valor)}` : '';
     const marca = cantidad > 0 ? '**' : '';
-    return `${emoji}${marca}${nivel.nombre}${marca} · \`${cantidad}\` cuenta(s)${subtotal}`;
+    return `${emoji}${marca}${nivel.nombre}${marca} · \`${cantidad}\` cuenta(s)`;
   });
 
   const embed = new EmbedBuilder()
     .setTitle('🔐 Cuentas registradas')
     .setColor(config.colores.principal)
     .setDescription(lineas.join('\n'))
-    .addFields({ name: 'Total de cuentas', value: `\`${total}\``, inline: true });
+    .addFields(
+      { name: 'Usuario', value: `<@${usuarioId}>`, inline: true },
+      { name: 'Total', value: `\`${total(registro)}\` cuenta(s)`, inline: true },
+    );
 
-  if (conValores) {
-    embed.addFields({ name: 'Valor total', value: `\`${formatearValor(valorTotal(registro))}\``, inline: true });
+  // Memoria: los tickets que ha abierto antes.
+  const historial = usuario.historial || [];
+  if (historial.length) {
+    const ultimos = historial
+      .slice(0, 5)
+      .map((h) => {
+        const fecha = `<t:${Math.floor(h.abiertoEn / 1000)}:d>`;
+        return `\`#${h.numero}\` ${h.tipoNombre || h.tipoId} · ${fecha} · ${h.cerradoEn ? 'cerrado' : 'abierto'}`;
+      })
+      .join('\n');
+    embed.addFields({ name: `Tickets abiertos en total: ${historial.length}`, value: ultimos });
   }
 
-  const contexto = [];
-  if (usuarioId) contexto.push(`Usuario: <@${usuarioId}>`);
-  if (numeroTicket) contexto.push(canalId ? `Ticket: <#${canalId}> (#${numeroTicket})` : `Ticket #${numeroTicket}`);
-  if (contexto.length) embed.addFields({ name: 'Ficha', value: contexto.join(' · ') });
-
-  embed.setFooter({ text: 'Visible solo para el dueño del servidor y los administradores' }).setTimestamp();
-
-  return embed;
+  return embed.setFooter({ text: 'Visible solo para el dueño del servidor y los administradores' }).setTimestamp();
 }
 
-/**
- * Botones del panel privado. Van dentro de un mensaje efimero, asi que solo
- * los ve el administrador que abre el panel.
- */
-function panelCuentas() {
+/** Botones del panel privado. Van en un mensaje efimero. */
+function panelCuentas(usuarioId) {
   const selectNiveles = new StringSelectMenuBuilder()
-    .setCustomId('cuentas:nivel')
+    .setCustomId(`cuentas:nivel:${usuarioId}`)
     .setPlaceholder('Sumar o restar cuentas de un nivel...')
     .addOptions(
-      config.niveles.map((nivel) => {
-        const valor = valorNivel(nivel);
-        return {
-          label: nivel.nombre,
-          value: nivel.id,
-          emoji: nivel.emoji || undefined,
-          description: valor > 0 ? `${formatearValor(valor)} por cuenta` : undefined,
-        };
-      }),
+      config.niveles.map((nivel) => ({
+        label: nivel.nombre,
+        value: nivel.id,
+        emoji: nivel.emoji || undefined,
+      })),
     );
 
   return [
     new ActionRowBuilder().addComponents(selectNiveles),
     new ActionRowBuilder().addComponents(
       new ButtonBuilder()
-        .setCustomId('cuentas:editar')
+        .setCustomId(`cuentas:editar:${usuarioId}`)
         .setLabel('Editar cantidades')
         .setEmoji('📝')
         .setStyle(ButtonStyle.Primary),
       new ButtonBuilder()
-        .setCustomId('cuentas:vaciar')
+        .setCustomId(`cuentas:vaciar:${usuarioId}`)
         .setLabel('Vaciar')
         .setEmoji('🗑️')
         .setStyle(ButtonStyle.Secondary),
       new ButtonBuilder()
-        .setCustomId('cuentas:refrescar')
+        .setCustomId(`cuentas:refrescar:${usuarioId}`)
         .setLabel('Actualizar')
         .setEmoji('🔄')
         .setStyle(ButtonStyle.Secondary),
@@ -162,31 +138,21 @@ function panelCuentas() {
   ];
 }
 
-/** Contenido completo del panel privado, listo para reply/update efimero. */
-function vistaPanel(canalId) {
-  const ticket = store.getTicket(canalId);
+/** Contenido del panel privado, listo para responder en efimero. */
+function vistaPanel(guildId, usuarioId) {
   return {
-    embeds: [
-      embedCuentas(getCuentas(canalId), {
-        usuarioId: ticket?.usuarioId,
-        numeroTicket: ticket?.numero,
-      }),
-    ],
-    components: panelCuentas(),
+    embeds: [embedCuentas(guildId, usuarioId)],
+    components: panelCuentas(usuarioId),
   };
 }
 
 /**
- * Si hay un canal privado de registro configurado, mantiene ahi un mensaje por
- * ticket con las cuentas al dia. Si no hay canal configurado, no hace nada:
- * el registro sigue existiendo y se consulta con el panel privado.
+ * Si hay canal privado de fichas configurado, mantiene ahi un mensaje por
+ * usuario con sus cuentas al dia.
  */
-async function refrescarRegistro(guild, canalTicketId) {
+async function refrescarFicha(guild, usuarioId) {
   const cfg = store.getGuild(guild.id);
   if (!cfg.canalCuentasId) return null;
-
-  const ticket = store.getTicket(canalTicketId);
-  if (!ticket) return null;
 
   const canal =
     guild.channels.cache.get(cfg.canalCuentasId) ||
@@ -194,31 +160,24 @@ async function refrescarRegistro(guild, canalTicketId) {
 
   if (!canal?.isTextBased()) return null;
 
-  const contenido = {
-    embeds: [
-      embedCuentas(getCuentas(canalTicketId), {
-        usuarioId: ticket.usuarioId,
-        numeroTicket: ticket.numero,
-        canalId: canalTicketId,
-      }),
-    ],
-  };
+  const contenido = { embeds: [embedCuentas(guild.id, usuarioId)] };
+  const usuario = store.getUsuario(guild.id, usuarioId);
 
-  if (ticket.mensajeRegistroId) {
+  if (usuario.mensajeFichaId) {
     try {
-      const mensaje = await canal.messages.fetch(ticket.mensajeRegistroId);
+      const mensaje = await canal.messages.fetch(usuario.mensajeFichaId);
       return await mensaje.edit(contenido);
     } catch {
-      // El mensaje se ha borrado: creamos uno nuevo mas abajo.
+      // La ficha se ha borrado: creamos otra.
     }
   }
 
   try {
     const mensaje = await canal.send(contenido);
-    store.setTicket(canalTicketId, { mensajeRegistroId: mensaje.id });
+    store.setUsuario(guild.id, usuarioId, { mensajeFichaId: mensaje.id });
     return mensaje;
   } catch (err) {
-    console.error('[cuentas] no se ha podido escribir en el canal de registro:', err.message);
+    console.error('[cuentas] no se ha podido escribir en el canal de fichas:', err.message);
     return null;
   }
 }
@@ -230,15 +189,11 @@ module.exports = {
   sumarNivel,
   limpiarCuentas,
   normalizarCantidad,
-  totalCuentas,
-  valorTotal,
-  valorNivel,
-  hayValores,
-  formatearValor,
+  total,
   resumenCorto,
   embedCuentas,
   panelCuentas,
   vistaPanel,
-  refrescarRegistro,
+  refrescarFicha,
   MAX_POR_NIVEL,
 };

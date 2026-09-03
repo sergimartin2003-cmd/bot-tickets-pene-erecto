@@ -3,21 +3,24 @@
 const fs = require('node:fs');
 const path = require('node:path');
 
-const { ROOT } = require('../config');
+const config = require('../config');
 
-const DIR = path.join(ROOT, 'data');
+const DIR = path.join(config.ROOT, 'data');
 const RUTA = path.join(DIR, 'db.json');
 
-const VACIO = { guilds: {}, tickets: {} };
+const VACIO = { guilds: {}, usuarios: {}, tickets: {} };
 
 let db = VACIO;
 let guardadoPendiente = null;
 
 function leer() {
   try {
-    const crudo = fs.readFileSync(RUTA, 'utf8');
-    const datos = JSON.parse(crudo);
-    db = { guilds: datos.guilds || {}, tickets: datos.tickets || {} };
+    const datos = JSON.parse(fs.readFileSync(RUTA, 'utf8'));
+    db = {
+      guilds: datos.guilds || {},
+      usuarios: datos.usuarios || {},
+      tickets: datos.tickets || {},
+    };
   } catch (err) {
     if (err.code !== 'ENOENT') {
       console.error('[store] db.json ilegible, se empieza de cero:', err.message);
@@ -28,8 +31,8 @@ function leer() {
 
 function escribir() {
   fs.mkdirSync(DIR, { recursive: true });
-  // Escritura atomica: si el proceso muere a media escritura, db.json
-  // sigue siendo el ultimo estado valido.
+  // Escritura atomica: si el proceso muere a media escritura, db.json sigue
+  // siendo el ultimo estado valido.
   const tmp = `${RUTA}.tmp`;
   fs.writeFileSync(tmp, JSON.stringify(db, null, 2));
   fs.renameSync(tmp, RUTA);
@@ -51,6 +54,8 @@ function guardar() {
 
 leer();
 
+// --- Configuracion del servidor ---
+
 const CONFIG_GUILD_POR_DEFECTO = {
   categoriaId: null,
   categoriaCerradosId: null,
@@ -58,6 +63,7 @@ const CONFIG_GUILD_POR_DEFECTO = {
   canalCuentasId: null,
   staffRolId: null,
   contador: 0,
+  tipos: null,
 };
 
 function getGuild(guildId) {
@@ -75,11 +81,73 @@ function setGuild(guildId, cambios) {
 }
 
 function siguienteNumero(guildId) {
-  const cfg = getGuild(guildId);
-  const numero = (cfg.contador || 0) + 1;
+  const numero = (getGuild(guildId).contador || 0) + 1;
   setGuild(guildId, { contador: numero });
   return numero;
 }
+
+// --- Tipos de ticket (los botones del panel) ---
+
+/** La primera vez copia los tipos por defecto de config.json. */
+function getTipos(guildId) {
+  const cfg = getGuild(guildId);
+  if (!Array.isArray(cfg.tipos)) {
+    const iniciales = structuredClone(config.tiposPorDefecto);
+    setGuild(guildId, { tipos: iniciales });
+    return iniciales;
+  }
+  return cfg.tipos;
+}
+
+function setTipos(guildId, tipos) {
+  setGuild(guildId, { tipos });
+  return tipos;
+}
+
+function getTipo(guildId, tipoId) {
+  return getTipos(guildId).find((t) => t.id === tipoId) || null;
+}
+
+// --- Memoria por usuario: cuentas e historial ---
+
+const USUARIO_VACIO = { cuentas: {}, historial: [] };
+const MAX_HISTORIAL = 25;
+
+function claveUsuario(guildId, usuarioId) {
+  return `${guildId}:${usuarioId}`;
+}
+
+function getUsuario(guildId, usuarioId) {
+  const datos = db.usuarios[claveUsuario(guildId, usuarioId)];
+  return { ...USUARIO_VACIO, ...(datos || {}) };
+}
+
+function setUsuario(guildId, usuarioId, cambios) {
+  const clave = claveUsuario(guildId, usuarioId);
+  db.usuarios[clave] = { ...getUsuario(guildId, usuarioId), ...cambios };
+  guardar();
+  return db.usuarios[clave];
+}
+
+/** Apunta un ticket en el historial del usuario (lo mas nuevo primero). */
+function apuntarHistorial(guildId, usuarioId, entrada) {
+  const usuario = getUsuario(guildId, usuarioId);
+  const historial = [entrada, ...usuario.historial].slice(0, MAX_HISTORIAL);
+  setUsuario(guildId, usuarioId, { historial });
+  return historial;
+}
+
+/** Marca como cerrada la entrada del historial de ese ticket. */
+function cerrarEnHistorial(guildId, usuarioId, numero) {
+  const usuario = getUsuario(guildId, usuarioId);
+  const historial = usuario.historial.map((h) =>
+    h.numero === numero ? { ...h, cerradoEn: Date.now() } : h,
+  );
+  setUsuario(guildId, usuarioId, { historial });
+  return historial;
+}
+
+// --- Tickets abiertos ---
 
 function getTicket(canalId) {
   return db.tickets[canalId] || null;
@@ -106,8 +174,16 @@ module.exports = {
   getGuild,
   setGuild,
   siguienteNumero,
+  getTipos,
+  setTipos,
+  getTipo,
+  getUsuario,
+  setUsuario,
+  apuntarHistorial,
+  cerrarEnHistorial,
   getTicket,
   setTicket,
   borrarTicket,
   ticketsDe,
+  MAX_HISTORIAL,
 };

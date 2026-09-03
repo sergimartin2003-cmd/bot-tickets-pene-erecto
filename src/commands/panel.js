@@ -1,41 +1,42 @@
 'use strict';
 
-const { SlashCommandBuilder, PermissionFlagsBits, MessageFlags } = require('discord.js');
+const {
+  SlashCommandBuilder,
+  PermissionFlagsBits,
+  ChannelType,
+  MessageFlags,
+} = require('discord.js');
 
 const panel = require('../lib/panel');
+const { esAdmin } = require('../lib/permisos');
 
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('panel')
-    .setDescription('Publica el panel para que la gente abra tickets')
+    .setDescription('Menu para crear los botones del panel y publicarlo')
     .addChannelOption((o) =>
-      o.setName('canal').setDescription('Canal donde publicar el panel (por defecto, este)').setRequired(false))
-    .addStringOption((o) =>
-      o.setName('titulo').setDescription('Titulo personalizado del panel').setRequired(false))
-    .addStringOption((o) =>
-      o.setName('descripcion').setDescription('Descripcion personalizada del panel').setRequired(false))
+      o
+        .setName('canal')
+        .setDescription('Canal donde se publicara el panel (por defecto, este)')
+        .addChannelTypes(ChannelType.GuildText)
+        .setRequired(false))
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
     .setDMPermission(false),
 
   async execute(interaction) {
-    const canal = interaction.options.getChannel('canal') || interaction.channel;
-    const titulo = interaction.options.getString('titulo');
-    const descripcion = interaction.options.getString('descripcion');
-
-    if (!canal.isTextBased()) {
-      return interaction.reply({ content: '❌ Ese canal no admite mensajes.', flags: MessageFlags.Ephemeral });
-    }
-
-    try {
-      await canal.send({ embeds: [panel.embedPanel({ titulo, descripcion })], components: [panel.selectPanel()] });
-    } catch (err) {
-      console.error('[panel] no se ha podido publicar:', err.message);
+    if (!esAdmin(interaction.member)) {
       return interaction.reply({
-        content: `❌ No he podido escribir en ${canal}. Comprueba mis permisos en ese canal.`,
+        content: '❌ Solo los administradores pueden gestionar los paneles.',
         flags: MessageFlags.Ephemeral,
       });
     }
 
-    return interaction.reply({ content: `✅ Panel publicado en ${canal}.`, flags: MessageFlags.Ephemeral });
+    const destino = interaction.options.getChannel('canal');
+
+    // Menu efimero: se crean los botones y desde ahi se publica el panel.
+    return interaction.reply({
+      ...panel.vistaGestion(interaction.guildId, { destinoId: destino?.id || null }),
+      flags: MessageFlags.Ephemeral,
+    });
   },
 };

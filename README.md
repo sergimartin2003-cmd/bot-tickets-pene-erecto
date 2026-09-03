@@ -1,70 +1,109 @@
-# Bot de tickets con registro privado de cuentas
+# Bot de tickets
 
-Bot de tickets para Discord con una función extra: dentro de cada ticket hay un
-**registro de las cuentas que posee el usuario**, contadas por nivel (por
-ejemplo *2 de Level 1, 5 de Level 2 y 1 de Level 3*).
-
-**Ese registro es privado.** Solo lo pueden ver y editar el **dueño del
-servidor** y quien tenga el permiso de **Administrador**. Ni el usuario del
-ticket ni el staff normal ven nada: no se publica en el canal, no aparece en los
-logs y el comando ni siquiera les sale en la lista.
+Bot de tickets para Discord con paneles de **botones clickables** que tú mismo
+creas desde un menú, tickets **privados** y un registro de cuentas por nivel
+que solo ven los administradores.
 
 ## Qué hace
 
-- Panel con menú desplegable para abrir tickets.
-- Un canal privado por ticket, visible solo para el autor, el staff y el bot.
-- **Registro privado de cuentas por nivel** (la parte principal).
-- Cerrar, reabrir, reclamar, añadir/quitar gente y borrar el ticket.
-- Transcripción en `.txt` del ticket al cerrarlo.
-- Canal de logs con aperturas y cierres.
-- Límite de 3 tickets abiertos por persona.
+- **Menú para crear los paneles**: creas los botones que quieras (Dudas,
+  Soporte, lo que sea) desde Discord, sin tocar archivos, y publicas el panel
+  donde quieras.
+- **Tickets privados**: cada ticket es un canal que solo ven quien lo abre, el
+  staff y los administradores. Nadie más.
+- **Botón de cerrar** dentro de cada ticket, con confirmación.
+- **Registro de cuentas por nivel** (Level 1 / 2 / 3): solo sumar y restar, sin
+  precios ni nada de dinero. Privado para owner y administradores.
+- **Memoria**: las cuentas y el historial de tickets de cada persona se guardan
+  y siguen ahí aunque el ticket se cierre o se borre.
+- Reclamar tickets, añadir o quitar gente, transcripción en `.txt` y canal de
+  logs.
+
+## El menú de paneles
+
+Escribes `/panel` y sale un menú (solo lo ves tú):
+
+```
+🛠️ Menu de paneles
+Botones (3/10)
+1. 🛠️ Soporte (soporte) — Problemas con el servidor
+2. ❓ Dudas   (dudas)   — Preguntas generales
+3. 📌 Otros   (otros)   — Cualquier otra cosa
+
+Se publicara en: #abrir-ticket
+
+[➕ Crear boton]  [📤 Publicar panel]  [🔄 Actualizar]
+[Borrar un boton...            ▾]
+```
+
+- **➕ Crear botón** abre un formulario: nombre, emoji, descripción, el mensaje
+  que verá la gente al abrir ese ticket, y el color (azul, gris, verde o rojo).
+- **Borrar un botón** es el desplegable de abajo.
+- **📤 Publicar panel** te pide un título y un texto, y suelta el panel en el
+  canal. Cada botón abre su tipo de ticket.
+
+Para publicarlo en otro canal: `/panel canal:#abrir-ticket`.
+
+Si cambias los botones después de publicar, vuelve a publicar el panel para que
+salgan los nuevos.
+
+## Cómo se abre un ticket
+
+La gente pulsa un botón del panel → le sale un formulario para contar qué
+necesita (opcional) → se le crea su canal privado con el botón **🔒 Cerrar
+ticket** dentro.
+
+El canal lo ven: quien lo abrió, el rol de staff que hayas configurado y los
+administradores. `@everyone` lo tiene bloqueado.
+
+Cerrarlo puede quien lo abrió o el staff. Al cerrarse, quien lo abrió deja de
+verlo, el canal se mueve a la categoría de cerrados (si la configuras) y el
+staff se queda con los botones de **Reabrir**, **Transcripción** y **Borrar
+canal**.
 
 ## El registro de cuentas (Level 1 / 2 / 3)
 
-Un administrador escribe `/cuentas ver` dentro del ticket y le sale un panel
-**efímero** (un mensaje que solo ve quien lo abre, nadie más del canal):
+Apunta cuántas cuentas de cada nivel tiene una persona. **Solo sumar y restar.**
+
+Un administrador escribe `/cuentas ver` dentro de un ticket (o
+`/cuentas ver usuario:@alguien` en cualquier sitio) y le sale un panel efímero,
+que solo ve él:
 
 ```
 🔐 Cuentas registradas
-🥉 Level 1 · `2` cuenta(s) — 10€
-🥈 Level 2 · `5` cuenta(s) — 50€
-🥇 Level 3 · `1` cuenta(s) — 20€
+🥉 Level 1 · `2` cuenta(s)
+🥈 Level 2 · `5` cuenta(s)
+🥇 Level 3 · `1` cuenta(s)
 
-Total de cuentas: 8      Valor total: 80€
-Ficha: Usuario: @cliente · Ticket #12
+Usuario: @cliente          Total: 8 cuenta(s)
+Tickets abiertos en total: 3
+  #12 Dudas · 03/09/2026 · cerrado
+  ...
+
+[Sumar o restar cuentas de un nivel... ▾]
+[📝 Editar cantidades] [🗑️ Vaciar] [🔄 Actualizar]
 ```
-
-Desde ese panel se edita todo:
 
 | Cómo | Qué hace |
 |---|---|
-| Botón **📝 Editar cantidades** | Formulario con una casilla por nivel. Pones `2`, `5`, `1` y listo. |
-| Menú **Sumar o restar cuentas** | Eliges un nivel y escribes cuántas sumar (un número negativo resta). |
-| Botón **🗑️ Vaciar** | Deja todos los niveles a cero. |
-| Comando `/cuentas` | `ver`, `poner`, `añadir`, `quitar` y `vaciar`. |
+| **📝 Editar cantidades** | Formulario con una casilla por nivel: pones `2`, `5`, `1`. |
+| **Menú de nivel** | Eliges un nivel y escribes cuántas sumar (negativo resta). |
+| `/cuentas añadir` / `quitar` / `poner` / `vaciar` | Lo mismo por comando. |
 
-Cómo se mantiene privado:
+Las cuentas se guardan **por persona**, no por ticket: si mañana abre otro
+ticket, sus cuentas siguen ahí.
 
-- El comando `/cuentas` lleva permiso de Administrador, así que **Discord lo
-  esconde** a quien no lo tenga.
-- El bot vuelve a comprobar quién eres en cada clic, cada menú y cada
-  formulario, por si alguien intenta saltárselo.
-- Todas las respuestas son efímeras: nunca queda nada escrito en el canal del
-  ticket.
-- El resumen de cuentas tampoco se envía al canal de logs.
+### Por qué es privado de verdad
 
-### Ficha permanente (opcional)
+- `/cuentas` lleva permiso de Administrador, así que **Discord ni se lo enseña**
+  al cliente ni al staff.
+- El bot comprueba quién eres otra vez en cada botón, menú y formulario.
+- Todas las respuestas son efímeras: no queda nada escrito en el canal.
+- El resumen de cuentas no se manda al canal de logs (que sí ve el staff).
 
-Si quieres tener las cuentas de todos los tickets a la vista en un sitio, crea
-un canal que **solo vean los administradores** y configúralo:
-
-```
-/config canal-cuentas #fichas-cuentas
-```
-
-El bot mantiene ahí un mensaje por ticket, actualizado solo, con las cuentas, el
-usuario y el enlace al ticket. Si no configuras ese canal, el registro sigue
-funcionando igual y se consulta con `/cuentas ver`.
+Si quieres tenerlas todas a la vista, crea un canal que solo vean los admins y
+haz `/config canal-cuentas #ese-canal`: el bot mantiene ahí una ficha por
+persona, actualizada sola.
 
 ## Instalación
 
@@ -104,39 +143,35 @@ desarrollador**, luego clic derecho sobre el servidor > **Copiar ID**.
 npm start
 ```
 
-Los comandos se registran solos al arrancar (`DEPLOY_ON_START=true`). También
-puedes registrarlos a mano con `npm run deploy`.
+Los comandos se registran solos al arrancar. También puedes hacerlo a mano con
+`npm run deploy`.
 
-### 4. Configurar en Discord
-
-Con el bot ya dentro del servidor:
+### 4. Dejarlo listo en Discord
 
 ```
 /config categoria           categoria donde se crean los tickets
 /config categoria-cerrados  categoria a la que se mueven los cerrados
 /config logs                canal donde se registran aperturas y cierres
-/config canal-cuentas       canal PRIVADO con las fichas de cuentas (opcional)
 /config staff               rol que puede ver y gestionar los tickets
+/config canal-cuentas       canal PRIVADO con las fichas de cuentas (opcional)
 /config ver                 comprueba como esta todo
-/panel                      publica el panel para abrir tickets
+/panel                      menu para crear los botones y publicar el panel
 ```
 
-El rol de staff hay que ponerlo antes de que se abran tickets: los permisos se
-dan al crear cada canal. Y ojo con `/config canal-cuentas`: **ese canal tiene
-que estar cerrado a todo el mundo menos a los administradores**, porque es el
-único sitio donde las cuentas quedan escritas.
+El rol de staff ponlo **antes** de que se abran tickets: los permisos se dan al
+crear cada canal.
 
 ## Comandos
 
 | Comando | Quién | Para qué |
 |---|---|---|
-| `/cuentas ver` | Owner y admins | Abre el panel privado de cuentas |
-| `/cuentas poner` | Owner y admins | Fija cuántas cuentas posee de un nivel |
+| `/panel` | Admin | Menú para crear botones y publicar el panel |
+| `/config ...` | Admin | Categorías, logs, rol de staff, canal de fichas |
+| `/cuentas ver` | Owner y admins | Panel privado de cuentas |
 | `/cuentas añadir` | Owner y admins | Suma cuentas de un nivel |
 | `/cuentas quitar` | Owner y admins | Resta cuentas de un nivel |
+| `/cuentas poner` | Owner y admins | Fija la cantidad exacta |
 | `/cuentas vaciar` | Owner y admins | Pone todo a cero |
-| `/panel` | Admin | Publica el panel de tickets |
-| `/config ...` | Admin | Categorías, logs, canal de fichas y rol de staff |
 | `/ticket cerrar` | Autor y staff | Cierra el ticket |
 | `/ticket reabrir` | Staff | Vuelve a abrirlo |
 | `/ticket reclamar` | Staff | Marca que tú lo atiendes |
@@ -144,62 +179,56 @@ que estar cerrado a todo el mundo menos a los administradores**, porque es el
 | `/ticket quitar-usuario` | Staff | Le quita el acceso |
 | `/ticket transcripcion` | Staff | Genera el `.txt` del ticket |
 
-## Personalizar niveles y valores
+## Cambiar los niveles
 
-Todo está en `config.json`, no hay que tocar código:
+Los niveles están en `config.json`:
 
 ```json
 "niveles": [
-  { "id": "level1", "nombre": "Level 1", "emoji": "🥉", "valor": 5 },
-  { "id": "level2", "nombre": "Level 2", "emoji": "🥈", "valor": 10 },
-  { "id": "level3", "nombre": "Level 3", "emoji": "🥇", "valor": 20 }
+  { "id": "level1", "nombre": "Level 1", "emoji": "🥉" },
+  { "id": "level2", "nombre": "Level 2", "emoji": "🥈" },
+  { "id": "level3", "nombre": "Level 3", "emoji": "🥇" }
 ]
 ```
 
-Puedes cambiar nombres, emojis y valores, y añadir o quitar niveles (**máximo
-5**, porque los formularios de Discord solo admiten 5 casillas). El comando
-`/cuentas` y los menús se adaptan solos.
+Puedes cambiar nombres y emojis, y añadir o quitar niveles (**máximo 5**, porque
+los formularios de Discord solo admiten 5 casillas). El comando `/cuentas` y los
+menús se adaptan solos. Hay que reiniciar el bot después de tocarlo.
 
-El `valor` es lo que vale cada cuenta de ese nivel; sirve para que el panel te
-calcule el total. Si no lo quieres, pon `"valor": 0` en todos los niveles y el
-bot deja de mostrar valores.
+En `tiposPorDefecto` están los botones con los que arranca un servidor nuevo,
+pero no hace falta tocarlo: se gestionan desde `/panel`.
 
-En el mismo archivo están la moneda, los colores y los tipos de ticket
-(`tiposTicket`). En un tipo de ticket, `"registroCuentas": true` hace que se
-cree la ficha de cuentas al abrirlo.
-
-Después de tocar `config.json` hay que reiniciar el bot.
-
-## Comprobar que todo funciona
+## Comprobar que funciona
 
 ```bash
 npm run prueba
 ```
 
-Simula un ticket entero sin conectarse a Discord: guardar cantidades, sumar,
-restar, validaciones, y sobre todo que el cliente y el staff normal **no** pueden
-ver ni tocar el registro, ni por comando, ni por botón, ni colando un
-formulario.
+Simula el bot entero sin conectarse a Discord: crear y borrar botones, publicar
+el panel, abrir tickets, sumar y restar cuentas, la memoria, y que el cliente y
+el staff **no** pueden ver el registro ni por comando, ni por botón, ni colando
+un formulario.
 
 ## Estructura
 
 ```
-config.json            niveles, valores, tipos de ticket, colores
+config.json            niveles y botones por defecto
 src/index.js           arranque del bot
 src/deploy-commands.js registro de los comandos slash
 src/commands/          /panel /config /cuentas /ticket
 src/events/            eventos de discord.js
 src/interactions/      botones, menus y formularios
-src/lib/cuentas.js     el registro privado de cuentas por nivel
+src/lib/panel.js       paneles de botones y menu de gestion
+src/lib/cuentas.js     registro privado de cuentas por nivel
 src/lib/permisos.js    quien puede ver el registro (owner y admins)
 src/lib/tickets.js     crear, cerrar, reabrir y transcripciones
-src/lib/store.js       guardado en data/db.json
+src/lib/store.js       memoria: data/db.json
 scripts/prueba-humo.js prueba sin conexion
 ```
 
 ## Notas
 
-- Los datos se guardan en `data/db.json`. Ese archivo no se sube al repo
-  (está en `.gitignore`): haz copia de seguridad si te importa el registro.
+- Todo se guarda en `data/db.json`: botones del panel, cuentas e historial. Ese
+  archivo no se sube al repo (está en `.gitignore`), haz copia si te importa.
 - El `.env` tampoco se sube. **Nunca compartas tu token**; si se te escapa,
   resetéalo en el Developer Portal.

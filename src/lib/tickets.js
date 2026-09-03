@@ -12,18 +12,15 @@ const {
 
 const config = require('../config');
 const store = require('./store');
-const cuentas = require('./cuentas');
 
 const LIMITE_TICKETS_ABIERTOS = 3;
 
-function tipoPorId(id) {
-  return config.tiposTicket.find((t) => t.id === id) || null;
-}
-
 function esStaff(miembro) {
+  if (!miembro?.guild) return false;
+  if (miembro.permissions.has(PermissionFlagsBits.Administrator)) return true;
+  if (miembro.guild.ownerId === miembro.id) return true;
   const cfg = store.getGuild(miembro.guild.id);
-  if (cfg.staffRolId && miembro.roles.cache.has(cfg.staffRolId)) return true;
-  return miembro.permissions.has(PermissionFlagsBits.ManageChannels);
+  return Boolean(cfg.staffRolId && miembro.roles.cache.has(cfg.staffRolId));
 }
 
 function botonesTicket({ cerrado = false } = {}) {
@@ -65,6 +62,11 @@ function botonesTicket({ cerrado = false } = {}) {
   ];
 }
 
+/**
+ * Crea el canal del ticket. Es privado: @everyone no lo ve, y solo entran quien
+ * lo abre, el rol de staff y el bot (los administradores lo ven siempre por su
+ * propio permiso de Discord).
+ */
 async function crearTicket({ guild, miembro, tipo, motivo }) {
   const cfg = store.getGuild(guild.id);
 
@@ -81,13 +83,10 @@ async function crearTicket({ guild, miembro, tipo, motivo }) {
   }
 
   const numero = store.siguienteNumero(guild.id);
-  const nombre = `${tipo.id}-${String(numero).padStart(4, '0')}`;
+  const nombre = `${tipo.id}-${String(numero).padStart(4, '0')}`.slice(0, 100);
 
   const permisos = [
-    {
-      id: guild.roles.everyone.id,
-      deny: [PermissionFlagsBits.ViewChannel],
-    },
+    { id: guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
     {
       id: miembro.id,
       allow: [
@@ -139,7 +138,8 @@ async function crearTicket({ guild, miembro, tipo, motivo }) {
     console.error('[tickets] no se ha podido crear el canal:', err.message);
     return {
       error:
-        'No he podido crear el canal. Revisa que tengo el permiso **Gestionar canales** y que la categoria configurada con `/config categoria` sigue existiendo.',
+        'No he podido crear el canal. Revisa que tengo los permisos **Gestionar canales** y **Gestionar roles**, ' +
+        'y que la categoria configurada con `/config categoria` sigue existiendo.',
     };
   }
 
@@ -151,21 +151,30 @@ async function crearTicket({ guild, miembro, tipo, motivo }) {
     motivo: motivo || null,
     cerrado: false,
     reclamadoPor: null,
-    cuentas: cuentas.registroVacio(),
-    mensajeRegistroId: null,
     creadoEn: Date.now(),
+  });
+
+  // Memoria: queda apuntado en el historial del usuario aunque luego se borre
+  // el canal.
+  const historial = store.apuntarHistorial(guild.id, miembro.id, {
+    numero,
+    tipoId: tipo.id,
+    tipoNombre: tipo.nombre,
+    abiertoEn: Date.now(),
+    cerradoEn: null,
   });
 
   const embed = new EmbedBuilder()
     .setTitle(`${tipo.emoji || '🎫'} Ticket #${numero} · ${tipo.nombre}`)
     .setColor(config.colores.principal)
     .setDescription(tipo.mensaje || 'El staff te atendera en cuanto pueda.')
-    .addFields({ name: 'Abierto por', value: `${miembro}`, inline: true })
+    .addFields(
+      { name: 'Abierto por', value: `${miembro}`, inline: true },
+      { name: 'Tickets suyos', value: `\`${historial.length}\` en total`, inline: true },
+    )
     .setTimestamp();
 
-  if (motivo) {
-    embed.addFields({ name: 'Motivo', value: motivo.slice(0, 1024) });
-  }
+  if (motivo) embed.addFields({ name: 'Motivo', value: motivo.slice(0, 1024) });
 
   const menciones = [`${miembro}`];
   if (cfg.staffRolId) menciones.push(`<@&${cfg.staffRolId}>`);
@@ -175,12 +184,6 @@ async function crearTicket({ guild, miembro, tipo, motivo }) {
     embeds: [embed],
     components: botonesTicket(),
   });
-
-  // El registro de cuentas nunca se publica en el canal del ticket: si hay un
-  // canal privado configurado, la ficha se crea alli.
-  if (tipo.registroCuentas) {
-    await cuentas.refrescarRegistro(guild, canal.id);
-  }
 
   await log(guild, {
     titulo: `🎫 Ticket #${numero} abierto`,
@@ -202,7 +205,7 @@ async function cerrarTicket(canal, quienCierra, motivo) {
 
   const cfg = store.getGuild(canal.guild.id);
 
-  // El autor pierde el acceso de escritura, pero el staff sigue viendolo.
+  // Quien abrio el ticket deja de verlo; el staff sigue teniendo acceso.
   try {
     await canal.permissionOverwrites.edit(ticket.usuarioId, {
       SendMessages: false,
@@ -232,16 +235,18 @@ async function cerrarTicket(canal, quienCierra, motivo) {
     cerradoEn: Date.now(),
     motivoCierre: motivo || null,
   });
+  store.cerrarEnHistorial(canal.guild.id, ticket.usuarioId, ticket.numero);
 
-  const embed = new EmbedBuilder()
-    .setTitle('🔒 Ticket cerrado')
-    .setColor(config.colores.peligro)
-    .setDescription(`Cerrado por ${quienCierra}${motivo ? `\n**Motivo:** ${motivo}` : ''}`)
-    .setTimestamp();
-
-  await canal.send({ embeds: [embed], components: botonesTicket({ cerrado: true }) });
-
-  await cuentas.refrescarRegistro(canal.guild, canal.id);
+  await canal.send({
+    embeds: [
+      new EmbedBuilder()
+        .setTitle('🔒 Ticket cerrado')
+        .setColor(config.colores.peligro)
+        .setDescription(`Cerrado por ${quienCierra}${motivo ? `\n**Motivo:** ${motivo}` : ''}`)
+        .setTimestamp(),
+    ],
+    components: botonesTicket({ cerrado: true }),
+  });
 
   const transcripcion = await generarTranscripcion(canal);
   await log(canal.guild, {
@@ -281,9 +286,8 @@ async function reabrirTicket(canal, quienReabre) {
     }
   }
 
-  const tipo = tipoPorId(ticket.tipoId);
   try {
-    await canal.setName(`${tipo?.id || 'ticket'}-${String(ticket.numero).padStart(4, '0')}`);
+    await canal.setName(`${ticket.tipoId || 'ticket'}-${String(ticket.numero).padStart(4, '0')}`);
   } catch {
     // Rate limit de renombrado.
   }
@@ -329,8 +333,9 @@ async function generarTranscripcion(canal) {
     });
 
     const cabecera = `Transcripcion de #${canal.name} (${canal.id})\nGenerada: ${new Date().toISOString()}\nMensajes: ${lineas.length}\n${'='.repeat(60)}\n`;
-    const buffer = Buffer.from(cabecera + lineas.join('\n'), 'utf8');
-    return new AttachmentBuilder(buffer, { name: `transcripcion-${canal.name}.txt` });
+    return new AttachmentBuilder(Buffer.from(cabecera + lineas.join('\n'), 'utf8'), {
+      name: `transcripcion-${canal.name}.txt`,
+    });
   } catch (err) {
     console.error('[tickets] no se ha podido generar la transcripcion:', err.message);
     return null;
@@ -341,13 +346,11 @@ async function log(guild, { titulo, color, campos = [], ficheros = [] }) {
   const cfg = store.getGuild(guild.id);
   if (!cfg.logsId) return;
 
-  const canal = guild.channels.cache.get(cfg.logsId) || (await guild.channels.fetch(cfg.logsId).catch(() => null));
+  const canal =
+    guild.channels.cache.get(cfg.logsId) || (await guild.channels.fetch(cfg.logsId).catch(() => null));
   if (!canal?.isTextBased()) return;
 
-  const embed = new EmbedBuilder()
-    .setTitle(titulo)
-    .setColor(color || config.colores.principal)
-    .setTimestamp();
+  const embed = new EmbedBuilder().setTitle(titulo).setColor(color || config.colores.principal).setTimestamp();
   if (campos.length) embed.addFields(campos);
 
   await canal.send({ embeds: [embed], files: ficheros }).catch((err) => {
@@ -356,7 +359,6 @@ async function log(guild, { titulo, color, campos = [], ficheros = [] }) {
 }
 
 module.exports = {
-  tipoPorId,
   esStaff,
   botonesTicket,
   crearTicket,

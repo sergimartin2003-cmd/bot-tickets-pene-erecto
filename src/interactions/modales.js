@@ -6,15 +6,20 @@ const config = require('../config');
 const store = require('../lib/store');
 const cuentas = require('../lib/cuentas');
 const tickets = require('../lib/tickets');
+const panel = require('../lib/panel');
 const { esAdmin, AVISO_SOLO_ADMIN } = require('../lib/permisos');
 
 function efimero(contenido) {
   return { content: contenido, flags: MessageFlags.Ephemeral };
 }
 
-/** Lee un campo del formulario y lo convierte a numero entero (admite vacio). */
-function leerNumero(interaction, campoId, { permitirNegativo = false } = {}) {
-  const crudo = (interaction.fields.getTextInputValue(campoId) || '').trim().replace(',', '.');
+function texto(interaction, campo) {
+  return (interaction.fields.getTextInputValue(campo) || '').trim();
+}
+
+/** Lee un campo y lo convierte a numero entero (admite vacio). */
+function leerNumero(interaction, campo, { permitirNegativo = false } = {}) {
+  const crudo = texto(interaction, campo).replace(',', '.');
   if (crudo === '') return { valor: 0 };
 
   const numero = Number(crudo);
@@ -24,58 +29,145 @@ function leerNumero(interaction, campoId, { permitirNegativo = false } = {}) {
   return { valor: Math.trunc(numero) };
 }
 
-/**
- * Tras guardar, repinta el panel privado. Si el formulario se abrio desde el
- * propio panel efimero, lo actualiza en su sitio; si no, responde con uno nuevo.
- */
-async function responderConPanel(interaction, aviso) {
-  const vista = cuentas.vistaPanel(interaction.channelId);
-  if (interaction.isFromMessage()) {
-    return interaction.update({ ...vista, content: aviso });
-  }
-  return interaction.reply({ ...vista, content: aviso, flags: MessageFlags.Ephemeral });
+async function manejar(interaction) {
+  const partes = interaction.customId.split(':');
+  const [grupo, accion] = partes;
+
+  if (grupo === 'ticket' && accion === 'abrir') return abrirTicket(interaction, partes[3]);
+  if (grupo === 'panel' && accion === 'crear') return crearTipo(interaction);
+  if (grupo === 'panel' && accion === 'publicar') return publicarPanel(interaction, partes[3]);
+  if (grupo === 'cuentas') return guardarCuentas(interaction, accion, partes.slice(3));
+
+  return false;
 }
 
-async function manejar(interaction) {
-  const { customId } = interaction;
+// --- Abrir ticket desde un boton del panel ---
 
-  // Abrir ticket desde el panel publico.
-  if (customId.startsWith('ticket:abrir:modal:')) {
-    const tipo = tickets.tipoPorId(customId.split(':')[3]);
-    if (!tipo) {
-      await interaction.reply(efimero('❌ Ese tipo de ticket ya no existe.'));
-      return true;
-    }
-
-    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-
-    const motivo = interaction.fields.getTextInputValue('motivo')?.trim() || null;
-    const res = await tickets.crearTicket({
-      guild: interaction.guild,
-      miembro: interaction.member,
-      tipo,
-      motivo,
-    });
-
-    await interaction.editReply(res.error ? `❌ ${res.error}` : `✅ Ticket abierto: ${res.canal}`);
+async function abrirTicket(interaction, tipoId) {
+  const tipo = store.getTipo(interaction.guildId, tipoId);
+  if (!tipo) {
+    await interaction.reply(efimero('❌ Ese boton ya no existe.'));
     return true;
   }
 
-  // A partir de aqui todo es registro de cuentas: solo owner y admins.
-  if (customId === 'cuentas:editar:modal' || customId.startsWith('cuentas:nivel:modal:')) {
-    if (!esAdmin(interaction.member)) {
-      await interaction.reply(efimero(AVISO_SOLO_ADMIN));
-      return true;
-    }
-    if (!store.getTicket(interaction.channelId)) {
-      await interaction.reply(efimero('❌ Este canal ya no consta como ticket.'));
-      return true;
-    }
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+  const res = await tickets.crearTicket({
+    guild: interaction.guild,
+    miembro: interaction.member,
+    tipo,
+    motivo: texto(interaction, 'motivo') || null,
+  });
+
+  await interaction.editReply(res.error ? `❌ ${res.error}` : `✅ Ticket abierto: ${res.canal}`);
+  return true;
+}
+
+// --- Menu de gestion: crear boton y publicar panel ---
+
+async function crearTipo(interaction) {
+  if (!esAdmin(interaction.member)) {
+    await interaction.reply(efimero('❌ Solo los administradores pueden gestionar los paneles.'));
+    return true;
   }
 
-  // Editar todas las cantidades de una vez.
-  if (customId === 'cuentas:editar:modal') {
-    const registro = cuentas.getCuentas(interaction.channelId);
+  const tipos = store.getTipos(interaction.guildId);
+  if (tipos.length >= config.MAX_TIPOS) {
+    await interaction.reply(efimero(`❌ Ya tienes el maximo de ${config.MAX_TIPOS} botones.`));
+    return true;
+  }
+
+  const nombre = texto(interaction, 'nombre');
+  if (!nombre) {
+    await interaction.reply(efimero('❌ El boton necesita un nombre.'));
+    return true;
+  }
+
+  const color = texto(interaction, 'color').toLowerCase();
+  if (color && !(color in panel.ESTILOS)) {
+    await interaction.reply(
+      efimero(`❌ Color no valido: usa ${Object.keys(panel.ESTILOS).join(', ')} o dejalo vacio.`),
+    );
+    return true;
+  }
+
+  const tipo = {
+    id: panel.idDesdeNombre(interaction.guildId, nombre),
+    nombre: nombre.slice(0, 80),
+    emoji: texto(interaction, 'emoji') || null,
+    descripcion: texto(interaction, 'descripcion') || null,
+    mensaje: texto(interaction, 'mensaje') || null,
+    color: color || 'azul',
+  };
+
+  store.setTipos(interaction.guildId, [...tipos, tipo]);
+
+  const vista = panel.vistaGestion(interaction.guildId, {
+    aviso: `✅ Boton **${tipo.nombre}** creado. Pulsa **Publicar panel** cuando lo tengas todo.`,
+  });
+
+  // El formulario se abre desde el propio menu efimero, asi que lo repintamos
+  // en su sitio.
+  if (interaction.isFromMessage()) {
+    await interaction.update(vista);
+  } else {
+    await interaction.reply({ ...vista, flags: MessageFlags.Ephemeral });
+  }
+  return true;
+}
+
+async function publicarPanel(interaction, destinoId) {
+  if (!esAdmin(interaction.member)) {
+    await interaction.reply(efimero('❌ Solo los administradores pueden gestionar los paneles.'));
+    return true;
+  }
+
+  const canal =
+    destinoId && destinoId !== 'aqui'
+      ? interaction.guild.channels.cache.get(destinoId) ||
+        (await interaction.guild.channels.fetch(destinoId).catch(() => null))
+      : interaction.channel;
+
+  if (!canal?.isTextBased()) {
+    await interaction.reply(efimero('❌ No encuentro ese canal o no admite mensajes.'));
+    return true;
+  }
+
+  const vista = panel.vistaPanelPublico(interaction.guildId, {
+    titulo: texto(interaction, 'titulo') || null,
+    descripcion: texto(interaction, 'descripcion') || null,
+  });
+
+  try {
+    await canal.send(vista);
+  } catch (err) {
+    console.error('[panel] no se ha podido publicar:', err.message);
+    await interaction.reply(efimero(`❌ No he podido escribir en ${canal}. Revisa mis permisos en ese canal.`));
+    return true;
+  }
+
+  await interaction.reply(efimero(`✅ Panel publicado en ${canal}.`));
+  return true;
+}
+
+// --- Registro privado de cuentas ---
+
+async function guardarCuentas(interaction, accion, resto) {
+  if (!esAdmin(interaction.member)) {
+    await interaction.reply(efimero(AVISO_SOLO_ADMIN));
+    return true;
+  }
+
+  const usuarioId = resto[0];
+  if (!usuarioId) {
+    await interaction.reply(efimero('❌ No se de que usuario son estas cuentas. Vuelve a abrir el panel.'));
+    return true;
+  }
+
+  let aviso;
+
+  if (accion === 'editar') {
+    const registro = cuentas.getCuentas(interaction.guildId, usuarioId);
     const errores = [];
 
     for (const nivel of config.niveles) {
@@ -92,15 +184,10 @@ async function manejar(interaction) {
       return true;
     }
 
-    const guardado = cuentas.setCuentas(interaction.channelId, registro);
-    await cuentas.refrescarRegistro(interaction.guild, interaction.channelId);
-    await responderConPanel(interaction, `✅ Guardado: **${cuentas.resumenCorto(guardado)}**`);
-    return true;
-  }
-
-  // Sumar o restar cuentas de un nivel concreto.
-  if (customId.startsWith('cuentas:nivel:modal:')) {
-    const nivel = config.nivelPorId(customId.split(':')[3]);
+    const guardado = cuentas.setCuentas(interaction.guildId, usuarioId, registro);
+    aviso = `✅ Guardado: **${cuentas.resumenCorto(guardado)}**`;
+  } else if (accion === 'nivel') {
+    const nivel = config.nivelPorId(resto[1]);
     if (!nivel) {
       await interaction.reply(efimero('❌ Ese nivel ya no existe.'));
       return true;
@@ -112,16 +199,21 @@ async function manejar(interaction) {
       return true;
     }
 
-    const guardado = cuentas.sumarNivel(interaction.channelId, nivel.id, valor);
-    await cuentas.refrescarRegistro(interaction.guild, interaction.channelId);
-    await responderConPanel(
-      interaction,
-      `✅ ${nivel.nombre}: \`${guardado[nivel.id]}\` cuenta(s) en total.`,
-    );
-    return true;
+    const guardado = cuentas.sumarNivel(interaction.guildId, usuarioId, nivel.id, valor);
+    aviso = `✅ ${nivel.nombre}: \`${guardado[nivel.id]}\` cuenta(s) en total.`;
+  } else {
+    return false;
   }
 
-  return false;
+  await cuentas.refrescarFicha(interaction.guild, usuarioId);
+
+  const vista = { ...cuentas.vistaPanel(interaction.guildId, usuarioId), content: aviso };
+  if (interaction.isFromMessage()) {
+    await interaction.update(vista);
+  } else {
+    await interaction.reply({ ...vista, flags: MessageFlags.Ephemeral });
+  }
+  return true;
 }
 
 module.exports = { manejar };

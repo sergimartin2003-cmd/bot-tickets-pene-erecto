@@ -1,5 +1,4 @@
 {
-  "moneda": "€",
   "colores": {
     "principal": "#5865F2",
     "exito": "#57F287",
@@ -7,25 +6,16 @@
     "peligro": "#ED4245"
   },
   "niveles": [
-    { "id": "level1", "nombre": "Level 1", "emoji": "🥉", "valor": 5 },
-    { "id": "level2", "nombre": "Level 2", "emoji": "🥈", "valor": 10 },
-    { "id": "level3", "nombre": "Level 3", "emoji": "🥇", "valor": 20 }
+    { "id": "level1", "nombre": "Level 1", "emoji": "🥉" },
+    { "id": "level2", "nombre": "Level 2", "emoji": "🥈" },
+    { "id": "level3", "nombre": "Level 3", "emoji": "🥇" }
   ],
-  "tiposTicket": [
-    {
-      "id": "cuentas",
-      "nombre": "Cuentas",
-      "emoji": "👤",
-      "descripcion": "Todo lo relacionado con tus cuentas",
-      "registroCuentas": true,
-      "mensaje": "Cuentanos que necesitas y el staff te atendera en cuanto pueda."
-    },
+  "tiposPorDefecto": [
     {
       "id": "soporte",
       "nombre": "Soporte",
       "emoji": "🛠️",
       "descripcion": "Problemas con el servidor o con el servicio",
-      "registroCuentas": true,
       "mensaje": "Explica tu problema con el maximo detalle posible y espera a que te atienda el staff."
     },
     {
@@ -33,8 +23,14 @@
       "nombre": "Dudas",
       "emoji": "❓",
       "descripcion": "Preguntas generales",
-      "registroCuentas": false,
       "mensaje": "Escribe tu duda y el staff te respondera lo antes posible."
+    },
+    {
+      "id": "otros",
+      "nombre": "Otros",
+      "emoji": "📌",
+      "descripcion": "Cualquier otra cosa",
+      "mensaje": "Cuentanos que necesitas y el staff te atendera en cuanto pueda."
     }
   ]
 }

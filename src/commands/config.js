@@ -10,7 +10,6 @@ const {
 
 const config = require('../config');
 const store = require('../lib/store');
-const cuentas = require('../lib/cuentas');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -129,13 +128,12 @@ module.exports = {
         { name: 'Rol de staff', value: cfg.staffRolId ? `<@&${cfg.staffRolId}>` : '`sin configurar`', inline: true },
         { name: 'Tickets creados', value: `\`${cfg.contador}\``, inline: true },
         {
-          name: 'Niveles (se editan en config.json)',
-          value: config.niveles
-            .map((n) => {
-              const valor = cuentas.valorNivel(n);
-              return `${n.emoji || '•'} **${n.nombre}**${valor > 0 ? ` — ${cuentas.formatearValor(valor)}` : ''}`;
-            })
-            .join('\n'),
+          name: 'Niveles de cuenta (se editan en config.json)',
+          value: config.niveles.map((n) => `${n.emoji || '•'} **${n.nombre}**`).join('\n'),
+        },
+        {
+          name: 'Botones del panel',
+          value: `\`${store.getTipos(guildId).length}\` creados · se gestionan con \`/panel\``,
         },
       );
 
